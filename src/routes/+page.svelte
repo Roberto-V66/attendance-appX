@@ -1,16 +1,21 @@
 <!-- src/routes/+page.svelte -->
 <script>
-    import { attendees } from '$lib/stores/attendeeStore.js';
-    import { onMount, onDestroy } from 'svelte';
-    import { toast } from '@zerodevx/svelte-toast';
-    import { PlusCircle, Edit2, Trash2, LogOut, Download } from 'lucide-svelte'; // Optional icons
+    import { attendees } from "$lib/stores/attendeeStore.js";
+    import { onMount, onDestroy } from "svelte";
+    import { toast } from "@zerodevx/svelte-toast";
+    import { PlusCircle, Edit2, Trash2, LogOut, Download } from "lucide-svelte"; // Optional icons
 
     let showAddModal = false;
     let showEditModal = false;
     let currentAttendee = null; // For editing
 
-    let newName = '';
-    let newGroup = '';
+    let newName = "";
+    let newGroup = "";
+    let newTelephone = "";
+    let newAgeRange = "";
+    let isNew = "yes";
+    let hasMentor = "yes";
+    let newResidence = "";
 
     async function handleAddAttendee() {
         if (!newName.trim()) {
@@ -18,10 +23,13 @@
             return;
         }
         try {
-            await attendees.addAttendee({ name: newName, group: newGroup || null });
+            await attendees.addAttendee({
+                name: newName,
+                group: newGroup || null,
+            });
             toast.success("Attendee added!");
-            newName = '';
-            newGroup = '';
+            newName = "";
+            newGroup = "";
             showAddModal = false;
         } catch (error) {
             toast.error(`Error adding: ${error.message}`);
@@ -71,11 +79,14 @@
 
     // Stats (derived store or computed here)
     $: totalAttendees = $attendees.length;
-    $: presentAttendees = $attendees.filter(a => a.present).length;
-    $: percentagePresent = totalAttendees > 0 ? ((presentAttendees / totalAttendees) * 100).toFixed(1) : 0;
+    $: presentAttendees = $attendees.filter((a) => a.present).length;
+    $: percentagePresent =
+        totalAttendees > 0
+            ? ((presentAttendees / totalAttendees) * 100).toFixed(1)
+            : 0;
     $: groupBreakdown = $attendees.reduce((acc, attendee) => {
         if (attendee.present) {
-            const groupName = attendee.group || 'No Group';
+            const groupName = attendee.group || "No Group";
             acc[groupName] = (acc[groupName] || 0) + 1;
         }
         return acc;
@@ -98,121 +109,161 @@
     });
 
     function formatDate(timestamp) {
-        if (!timestamp || !timestamp.seconds) return 'N/A';
+        if (!timestamp || !timestamp.seconds) return "N/A";
         return new Date(timestamp.seconds * 1000).toLocaleString();
     }
 
+    let searchTerm = "";
+    $: filteredAttendees = $attendees.filter(
+        (a) =>
+            !searchTerm ||
+            a.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            a.telephone?.includes(searchTerm),
+    );
 </script>
 
 <div class="container mx-auto p-4">
     <header class="mb-6 flex justify-between items-center">
         <div>
             <h1 class="text-3xl font-bold text-gray-800">Attendance Tracker</h1>
-            <p class="text-gray-600">Manage your attendees and view their status.</p>
+            <p class="text-gray-600">
+                Manage your attendees and view their status.
+            </p>
         </div>
         <div class="flex items-center space-x-2">
-             <form method="POST" action="/export" target="_blank" class="inline">
-                <button type="submit" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center">
+            <form method="POST" action="/export" target="_blank" class="inline">
+                <button
+                    type="submit"
+                    class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center"
+                >
                     <Download class="mr-2 h-5 w-5" /> Export All
                 </button>
             </form>
-            <button on:click={() => showAddModal = true} class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center">
+            <button
+                on:click={() => (showAddModal = true)}
+                class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center"
+            >
                 <PlusCircle class="mr-2 h-5 w-5" /> Add Attendee
             </button>
             <form method="POST" action="/logout" class="inline">
-                <button type="submit" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center">
+                <button
+                    type="submit"
+                    class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center"
+                >
                     <LogOut class="mr-2 h-5 w-5" /> Logout
                 </button>
             </form>
         </div>
     </header>
 
+    <!-- Search Bar -->
+    <div class="mb-6">
+        <input
+            type="text"
+            placeholder="Search by name or telephone"
+            bind:value={searchTerm}
+            class="w-full px-4 py-2 border rounded shadow"
+        />
+    </div>
+
     <!-- Stats Section -->
     <div class="mb-6 p-4 bg-gray-50 rounded-lg shadow">
-        <h2 class="text-xl font-semibold mb-2 text-gray-700">Live Statistics</h2>
+        <h2 class="text-xl font-semibold mb-2 text-gray-700">
+            Live Statistics
+        </h2>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="bg-white p-3 rounded shadow">
                 <p class="text-sm text-gray-500">Total Attendees</p>
-                <p class="text-2xl font-bold text-indigo-600">{totalAttendees}</p>
+                <p class="text-2xl font-bold text-indigo-600">
+                    {totalAttendees}
+                </p>
             </div>
             <div class="bg-white p-3 rounded shadow">
                 <p class="text-sm text-gray-500">Currently Present</p>
-                <p class="text-2xl font-bold text-green-600">{presentAttendees}</p>
+                <p class="text-2xl font-bold text-green-600">
+                    {presentAttendees}
+                </p>
             </div>
             <div class="bg-white p-3 rounded shadow">
                 <p class="text-sm text-gray-500">% Present</p>
-                <p class="text-2xl font-bold text-blue-600">{percentagePresent}%</p>
+                <p class="text-2xl font-bold text-blue-600">
+                    {percentagePresent}%
+                </p>
             </div>
         </div>
         {#if Object.keys(groupBreakdown).length > 0}
-        <div class="mt-4">
-            <h3 class="text-md font-semibold mb-1 text-gray-600">Present by Group:</h3>
-            <ul class="list-disc list-inside text-sm">
-                {#each Object.entries(groupBreakdown) as [group, count]}
-                    <li>{group}: {count}</li>
-                {/each}
-            </ul>
-        </div>
+            <div class="mt-4">
+                <h3 class="text-md font-semibold mb-1 text-gray-600">
+                    Present by Group:
+                </h3>
+                <ul class="list-disc list-inside text-sm">
+                    {#each Object.entries(groupBreakdown) as [group, count]}
+                        <li>{group}: {count}</li>
+                    {/each}
+                </ul>
+            </div>
         {/if}
     </div>
 
-
-    <!-- Attendees Table -->
-    <div class="overflow-x-auto bg-white shadow-md rounded-lg">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Group</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Present</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Updated</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
-                {#each $attendees as attendee (attendee.id)}
-                    <tr class="hover:bg-gray-50">
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{attendee.name}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{attendee.group || 'N/A'}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <label class="flex items-center cursor-pointer">
-                                <input type="checkbox" bind:checked={attendee.present} on:change={() => handleTogglePresent(attendee.id, attendee.present)} class="form-checkbox h-5 w-5 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"/>
-                                <span class="ml-2 text-sm text-gray-700">{attendee.present ? 'Yes' : 'No'}</span>
-                            </label>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{formatDate(attendee.lastUpdated)}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                            <button on:click={() => openEditModal(attendee)} title="Edit" class="text-indigo-600 hover:text-indigo-900"><Edit2 class="h-5 w-5"/></button>
-                            <button on:click={() => handleDeleteAttendee(attendee.id)} title="Delete" class="text-red-600 hover:text-red-900"><Trash2 class="h-5 w-5"/></button>
-                        </td>
-                    </tr>
-                {:else}
-                    <tr>
-                        <td colspan="5" class="px-6 py-4 text-center text-sm text-gray-500">No attendees found. Add some!</td>
-                    </tr>
-                {/each}
-            </tbody>
-        </table>
-    </div>
+    <!-- Card Display -->
+<div class="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
+    {#each filteredAttendees as attendee}
+        <div class="bg-white rounded shadow p-4 flex flex-col gap-2">
+            <div class="font-bold text-lg">{attendee.name}</div>
+            <div><span class="font-semibold">Telephone:</span> {attendee.telephone || '-'}</div>
+            <div><span class="font-semibold">Group:</span> {attendee.group || '-'}</div>
+            <div><span class="font-semibold">Last Updated:</span> {formatDate(attendee.lastUpdated)}</div>
+            <div class="flex items-center gap-2">
+                <label>
+                    <input type="radio" checked={attendee.present} on:change={() => handleTogglePresent(attendee.id, !attendee.present)} />
+                    Present
+                </label>
+            </div>
+            <!-- Add edit/delete buttons if needed -->
+        </div>
+    {/each}
+</div>
 </div>
 
-<!-- Add Attendee Modal -->
+<!-- Add Person Modal -->
 {#if showAddModal}
-<div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50" role="dialog" tabindex="0" on:click|self={() => showAddModal = false} on:keydown={(e) => { if (e.key === 'Escape') showAddModal = false; }}>
+<div class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-        <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Add New Attendee</h3>
+        <h3 class="text-lg font-medium mb-4">Add New Person</h3>
         <form on:submit|preventDefault={handleAddAttendee}>
             <div class="mb-4">
-                <label for="add-name" class="block text-sm font-medium text-gray-700">Name*</label>
-                <input type="text" id="add-name" bind:value={newName} required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                <label>Name*</label>
+                <input type="text" bind:value={newName} required class="w-full border rounded px-3 py-2"/>
             </div>
             <div class="mb-4">
-                <label for="add-group" class="block text-sm font-medium text-gray-700">Group (Optional)</label>
-                <input type="text" id="add-group" bind:value={newGroup} class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                <label>Contact Information*</label>
+                <input type="text" bind:value={newTelephone} required class="w-full border rounded px-3 py-2"/>
             </div>
-            <div class="mt-6 flex justify-end space-x-3">
-                <button type="button" on:click={() => showAddModal = false} class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md border border-gray-300">Cancel</button>
-                <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm">Add Attendee</button>
+            <div class="mb-4">
+                <label>Age Range</label>
+                <input type="text" bind:value={newAgeRange} class="w-full border rounded px-3 py-2"/>
+            </div>
+            <div class="mb-4">
+                <label>Are you new?</label>
+                <select bind:value={isNew} class="w-full border rounded px-3 py-2">
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label>Do you have a mentor?</label>
+                <select bind:value={hasMentor} class="w-full border rounded px-3 py-2">
+                    <option value="yes">Yes</option>
+                    <option value="no">No</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label>Residence</label>
+                <input type="text" bind:value={newResidence} class="w-full border rounded px-3 py-2"/>
+            </div>
+            <div class="flex justify-end gap-2">
+                <button type="button" on:click={() => showAddModal = false} class="px-4 py-2 bg-gray-200 rounded">Cancel</button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Add</button>
             </div>
         </form>
     </div>
@@ -221,29 +272,76 @@
 
 <!-- Edit Attendee Modal -->
 {#if showEditModal && currentAttendee}
-<div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50" role="dialog" tabindex="0" on:click|self={() => showEditModal = false} on:keydown={(e) => { if (e.key === 'Escape') showEditModal = false; }}>
-    <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-        <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Edit Attendee</h3>
-        <form on:submit|preventDefault={handleUpdateAttendee}>
-            <div class="mb-4">
-                <label for="edit-name" class="block text-sm font-medium text-gray-700">Name*</label>
-                <input type="text" id="edit-name" bind:value={currentAttendee.name} required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-            </div>
-            <div class="mb-4">
-                <label for="edit-group" class="block text-sm font-medium text-gray-700">Group (Optional)</label>
-                <input type="text" id="edit-group" bind:value={currentAttendee.group} class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-            </div>
-             <div class="mb-4">
-                <label for="edit-present" class="block text-sm font-medium text-gray-700">Present</label>
-                <input id="edit-present" type="checkbox" bind:checked={currentAttendee.present} class="form-checkbox h-5 w-5 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"/>
-            </div>
-            <div class="mt-6 flex justify-end space-x-3">
-                <button type="button" on:click={() => showEditModal = false} class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md border border-gray-300">Cancel</button>
-                <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-sm">Save Changes</button>
-            </div>
-        </form>
+    <div
+        class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50"
+        role="dialog"
+        tabindex="0"
+        on:click|self={() => (showEditModal = false)}
+        on:keydown={(e) => {
+            if (e.key === "Escape") showEditModal = false;
+        }}
+    >
+        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
+            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">
+                Edit Attendee
+            </h3>
+            <form on:submit|preventDefault={handleUpdateAttendee}>
+                <div class="mb-4">
+                    <label
+                        for="edit-name"
+                        class="block text-sm font-medium text-gray-700"
+                        >Name*</label
+                    >
+                    <input
+                        type="text"
+                        id="edit-name"
+                        bind:value={currentAttendee.name}
+                        required
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                </div>
+                <div class="mb-4">
+                    <label
+                        for="edit-group"
+                        class="block text-sm font-medium text-gray-700"
+                        >Group (Optional)</label
+                    >
+                    <input
+                        type="text"
+                        id="edit-group"
+                        bind:value={currentAttendee.group}
+                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                </div>
+                <div class="mb-4">
+                    <label
+                        for="edit-present"
+                        class="block text-sm font-medium text-gray-700"
+                        >Present</label
+                    >
+                    <input
+                        id="edit-present"
+                        type="checkbox"
+                        bind:checked={currentAttendee.present}
+                        class="form-checkbox h-5 w-5 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
+                    />
+                </div>
+                <div class="mt-6 flex justify-end space-x-3">
+                    <button
+                        type="button"
+                        on:click={() => (showEditModal = false)}
+                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md border border-gray-300"
+                        >Cancel</button
+                    >
+                    <button
+                        type="submit"
+                        class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-sm"
+                        >Save Changes</button
+                    >
+                </div>
+            </form>
+        </div>
     </div>
-</div>
 {/if}
 
 <style>
@@ -252,6 +350,8 @@
        Then link it in app.html: <link rel="stylesheet" href="%sveltekit.assets%/app.css">
     */
     /* Or basic styles here if not using Tailwind */
-    .container { max-width: 1200px; }
+    .container {
+        max-width: 1200px;
+    }
     /* Add more specific styles for modals if not using a UI library or Tailwind */
 </style>

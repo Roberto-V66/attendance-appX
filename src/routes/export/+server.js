@@ -1,6 +1,6 @@
 // src/routes/export/+server.js
 import * as XLSX from 'xlsx';
-import { db } from '$lib/firebase.js'; // Path to your firebase init
+import { db } from '$lib/firebase/firebase.js';
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
 
 export async function POST({ url, cookies }) { // Changed to POST to allow form submission

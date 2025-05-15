@@ -1,0 +1,5 @@
+- Verify the functioning of export
+- How can data be inserted
+- Test the log out and toast
+- Think about the data structure given there are multiple months
+- Work on the UI (match cith shadcn)
