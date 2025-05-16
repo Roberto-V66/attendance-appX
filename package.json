@@ -30,6 +30,7 @@
 		"@lucide/svelte": "^0.510.0",
 		"@sveltejs/adapter-static": "^3.0.8",
 		"@tailwindcss/vite": "^4.1.5",
+		"@types/xlsx": "^0.0.35",
 		"@zerodevx/svelte-toast": "^0.9.6",
 		"firebase": "^11.6.0",
 		"localforage": "^1.10.0",
