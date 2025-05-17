@@ -1,357 +1,490 @@
-<!-- src/routes/+page.svelte -->
-<script>
-    import { attendees } from "$lib/stores/attendeeStore.js";
-    import { onMount, onDestroy } from "svelte";
-    import { toast } from "@zerodevx/svelte-toast";
-    import { PlusCircle, Edit2, Trash2, LogOut, Download } from "lucide-svelte"; // Optional icons
+<script lang="ts">
+    import {
+        ArrowUpRight,
+        Search,
+        LogOut,
+        Download,
+        CirclePlus,
+        File,
+    } from "lucide-svelte";
 
-    let showAddModal = false;
-    let showEditModal = false;
-    let currentAttendee = null; // For editing
+    import { Button } from "$lib/components/ui/button/index.js";
+    import * as Card from "$lib/components/ui/card/index.js";
+    import { Input } from "$lib/components/ui/input/index.js";
 
-    let newName = "";
-    let newGroup = "";
-    let newTelephone = "";
-    let newAgeRange = "";
-    let isNew = "yes";
-    let hasMentor = "yes";
-    let newResidence = "";
+    // Modal state
+    let isAddModalOpen = false;
+    let isEditModalOpen = false;
+    let editingPerson = null;
 
-    async function handleAddAttendee() {
-        if (!newName.trim()) {
-            toast.error("Name cannot be empty");
-            return;
-        }
-        try {
-            await attendees.addAttendee({
-                name: newName,
-                group: newGroup || null,
-            });
-            toast.success("Attendee added!");
-            newName = "";
-            newGroup = "";
-            showAddModal = false;
-        } catch (error) {
-            toast.error(`Error adding: ${error.message}`);
-        }
+    // Form data
+    let newPerson = {
+        name: "",
+        phone: "",
+        location: "",
+        ageGroup: "",
+        isNew: false,
+        hasMentor: false
+    };
+
+    // People data
+    let people = [
+        {
+            id: 1,
+            name: "John Doe",
+            phone: "699456723",
+            location: "Yaounde",
+            ageGroup: "Young Adult",
+            present: false,
+        },
+        {
+            id: 2,
+            name: "John Komme",
+            phone: "699422223",
+            location: "Douala",
+            ageGroup: "Adult",
+            present: false,
+        },
+        {
+            id: 3,
+            name: "Sarah Johnson",
+            phone: "677889900",
+            location: "Bamenda",
+            ageGroup: "Teen",
+            present: true,
+        },
+        {
+            id: 4,
+            name: "Michael Brown",
+            phone: "655443322",
+            location: "Buea",
+            ageGroup: "Senior",
+            present: false,
+        },
+    ];
+
+    // Toggle presence
+    function togglePresence(personId) {
+        people = people.map((person) =>
+            person.id === personId
+                ? { ...person, present: !person.present }
+                : person,
+        );
     }
 
-    function openEditModal(attendee) {
-        currentAttendee = { ...attendee }; // Clone to avoid direct mutation
-        showEditModal = true;
+    // Open edit modal
+    function openEditModal(person) {
+        editingPerson = { ...person };
+        isEditModalOpen = true;
     }
 
-    async function handleUpdateAttendee() {
-        if (!currentAttendee || !currentAttendee.name.trim()) {
-            toast.error("Name cannot be empty");
-            return;
-        }
-        try {
-            const { id, ...dataToUpdate } = currentAttendee;
-            await attendees.updateAttendee(id, dataToUpdate);
-            toast.success("Attendee updated!");
-            showEditModal = false;
-            currentAttendee = null;
-        } catch (error) {
-            toast.error(`Error updating: ${error.message}`);
-        }
+    // Handle add person
+    function handleAddPerson() {
+        people = [
+            ...people,
+            {
+                id: Date.now(), // simple ID generation
+                ...newPerson,
+                present: false,
+            },
+        ];
+        // Reset form
+        newPerson = {
+            name: "",
+            phone: "",
+            location: "",
+            ageGroup: "",
+            isNew: false,
+            hasMentor: false
+        };
+        isAddModalOpen = false;
     }
 
-    async function handleDeleteAttendee(id) {
-        if (confirm("Are you sure you want to delete this attendee?")) {
-            try {
-                await attendees.deleteAttendee(id);
-                toast.success("Attendee deleted!");
-            } catch (error) {
-                toast.error(`Error deleting: ${error.message}`);
-            }
-        }
+    // Handle edit person
+    function handleEditPerson() {
+        people = people.map((person) =>
+            person.id === editingPerson.id ? editingPerson : person,
+        );
+        isEditModalOpen = false;
     }
-
-    async function handleTogglePresent(id, present) {
-        try {
-            await attendees.togglePresent(id, present);
-            // toast.success(`Status updated for ${$attendees.find(a => a.id === id)?.name}`);
-        } catch (error) {
-            toast.error(`Error updating status: ${error.message}`);
-        }
-    }
-
-    // Stats (derived store or computed here)
-    $: totalAttendees = $attendees.length;
-    $: presentAttendees = $attendees.filter((a) => a.present).length;
-    $: percentagePresent =
-        totalAttendees > 0
-            ? ((presentAttendees / totalAttendees) * 100).toFixed(1)
-            : 0;
-    $: groupBreakdown = $attendees.reduce((acc, attendee) => {
-        if (attendee.present) {
-            const groupName = attendee.group || "No Group";
-            acc[groupName] = (acc[groupName] || 0) + 1;
-        }
-        return acc;
-    }, {});
-
-    // Preload some data (for testing, do this once via a script or Firebase console)
-    /*
-    onMount(async () => {
-         if ($attendees.length === 0) { // Simple check to avoid re-adding
-            await attendees.addAttendee({ name: "John Doe", group: "Choir", present: false });
-            await attendees.addAttendee({ name: "Jane Smith", group: "Ushers", present: true });
-            await attendees.addAttendee({ name: "Alice Brown", group: "Choir", present: false });
-         }
-    });
-    */
-
-    onDestroy(() => {
-        // If the store's unsubscribe is exposed and needed:
-        // if (attendees.unsubscribe) attendees.unsubscribe();
-    });
-
-    function formatDate(timestamp) {
-        if (!timestamp || !timestamp.seconds) return "N/A";
-        return new Date(timestamp.seconds * 1000).toLocaleString();
-    }
-
-    let searchTerm = "";
-    $: filteredAttendees = $attendees.filter(
-        (a) =>
-            !searchTerm ||
-            a.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            a.telephone?.includes(searchTerm),
-    );
 </script>
 
-<div class="container mx-auto p-4">
-    <header class="mb-6 flex justify-between items-center">
-        <div>
-            <h1 class="text-3xl font-bold text-gray-800">Attendance Tracker</h1>
-            <p class="text-gray-600">
-                Manage your attendees and view their status.
-            </p>
-        </div>
-        <div class="flex items-center space-x-2">
-            <form method="POST" action="/export" target="_blank" class="inline">
-                <button
-                    type="submit"
-                    class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center"
-                >
-                    <Download class="mr-2 h-5 w-5" /> Export All
-                </button>
-            </form>
-            <button
-                on:click={() => (showAddModal = true)}
-                class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center"
-            >
-                <PlusCircle class="mr-2 h-5 w-5" /> Add Attendee
-            </button>
-            <form method="POST" action="/logout" class="inline">
-                <button
-                    type="submit"
-                    class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded shadow flex items-center"
-                >
-                    <LogOut class="mr-2 h-5 w-5" /> Logout
-                </button>
+<div class="flex min-h-screen w-full flex-col">
+    <header
+        class="bg-background sticky top-0 flex h-16 items-center gap-4 border-b px-4 md:px-6"
+    >
+        <div
+            class="flex w-full items-center gap-4 md:ml-auto md:gap-2 lg:gap-4"
+        >
+            <form class="ml-auto flex-1 sm:flex-initial">
+                <div class="relative">
+                    <Search
+                        class="text-muted-foreground absolute left-2.5 top-2.5 h-4 w-4"
+                    />
+                    <Input
+                        type="search"
+                        placeholder="Search poeple..."
+                        class="pl-8 sm:w-[400px] md:w-[800px] lg:w-[700px]"
+                    />
+                </div>
             </form>
         </div>
     </header>
 
-    <!-- Search Bar -->
-    <div class="mb-6">
-        <input
-            type="text"
-            placeholder="Search by name or telephone"
-            bind:value={searchTerm}
-            class="w-full px-4 py-2 border rounded shadow"
-        />
-    </div>
+    <main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+        <div class="grid gap-4 md:gap-8">
+            <Card.Root class="w-full">
+                <div class="text-center mt-2">
+                    <Card.Title>Attendance Tracker</Card.Title>
+                    <Card.Description
+                        >Manage your attendees and view their status.</Card.Description
+                    >
+                </div>
+                <Card.Header class="flex flex-row items-center">
+                    <div class="ml-auto flex items-center gap-2">
+                        <!-- Add Button -->
+                        <Button
+                            size="sm"
+                            class="h-8 gap-1"
+                            on:click={() => (isAddModalOpen = true)}
+                        >
+                            <CirclePlus class="h-3.5 w-3.5" />
+                            Add
+                        </Button>
 
-    <!-- Stats Section -->
-    <div class="mb-6 p-4 bg-gray-50 rounded-lg shadow">
-        <h2 class="text-xl font-semibold mb-2 text-gray-700">
-            Live Statistics
-        </h2>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="bg-white p-3 rounded shadow">
-                <p class="text-sm text-gray-500">Total Attendees</p>
-                <p class="text-2xl font-bold text-indigo-600">
-                    {totalAttendees}
-                </p>
-            </div>
-            <div class="bg-white p-3 rounded shadow">
-                <p class="text-sm text-gray-500">Currently Present</p>
-                <p class="text-2xl font-bold text-green-600">
-                    {presentAttendees}
-                </p>
-            </div>
-            <div class="bg-white p-3 rounded shadow">
-                <p class="text-sm text-gray-500">% Present</p>
-                <p class="text-2xl font-bold text-blue-600">
-                    {percentagePresent}%
-                </p>
-            </div>
-        </div>
-        {#if Object.keys(groupBreakdown).length > 0}
-            <div class="mt-4">
-                <h3 class="text-md font-semibold mb-1 text-gray-600">
-                    Present by Group:
-                </h3>
-                <ul class="list-disc list-inside text-sm">
-                    {#each Object.entries(groupBreakdown) as [group, count]}
-                        <li>{group}: {count}</li>
+                        <!-- Your other buttons remain the same -->
+                        <Button href="./list" size="sm" class="ml-auto gap-1">
+                            View
+                            <ArrowUpRight class="h-4 w-4" />
+                        </Button>
+                        <Button href="##" size="sm" class="ml-auto gap-1">
+                            <Download class="h-3.5 w-3.5" />
+                            Export
+                        </Button>
+                        <form action="/logout" method="POST">
+                            <Button
+                                type="submit"
+                                size="sm"
+                                variant="outline"
+                                class="h-8"
+                            >
+                                <LogOut class="h-3.5 w-3.5" />
+                                Logout
+                            </Button>
+                        </form>
+    </div>
+                </Card.Header>
+
+                <Card.Content>
+                    <div
+                        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                    >
+                        {#each people as person (person.id)}
+                            <Card.Root
+                                class="hover:shadow-lg transition-shadow duration-200"
+                            >
+                                <Card.Header>
+                                    <Card.Title class="truncate"
+                                        >{person.name}</Card.Title
+                                    >
+                                </Card.Header>
+                                <Card.Content class="space-y-2">
+                                    <p class="flex items-center gap-2">
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            class="h-4 w-4 text-muted-foreground"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                        >
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                                            />
+                                        </svg>
+                                        <span class="truncate"
+                                            >{person.phone}</span
+                                        >
+                                    </p>
+                                    <p class="flex items-center gap-2">
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            class="h-4 w-4 text-muted-foreground"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                        >
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                                            />
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                                            />
+                                        </svg>
+                                        <span class="truncate"
+                                            >{person.location}</span
+                                        >
+                                    </p>
+                                    <p class="flex items-center gap-2">
+                                        <svg
+                                            xmlns="http://www.w3.org/2000/svg"
+                                            class="h-4 w-4 text-muted-foreground"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                        >
+                                            <path
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                stroke-width="2"
+                                                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                                            />
+                                        </svg>
+                                        <span class="truncate"
+                                            >{person.ageGroup}</span
+                                        >
+                                    </p>
+                                </Card.Content>
+                                <Card.Footer class="flex justify-between">
+                                    <Button
+                                        variant="outline"
+                                        on:click={() => openEditModal(person)}
+                                    >
+                                        Edit
+                                    </Button>
+                                    <Button
+                                        class={person.present
+                                            ? "bg-green-500 hover:bg-green-600"
+                                            : "bg-red-500 hover:bg-red-600"}
+                                        on:click={() =>
+                                            togglePresence(person.id)}
+                                    >
+                                        {person.present ? "Absent" : "Present"}
+                                    </Button>
+                                </Card.Footer>
+                            </Card.Root>
                     {/each}
-                </ul>
             </div>
-        {/if}
+                </Card.Content>
+            </Card.Root>
     </div>
 
-    <!-- Card Display -->
-<div class="grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3">
-    {#each filteredAttendees as attendee}
-        <div class="bg-white rounded shadow p-4 flex flex-col gap-2">
-            <div class="font-bold text-lg">{attendee.name}</div>
-            <div><span class="font-semibold">Telephone:</span> {attendee.telephone || '-'}</div>
-            <div><span class="font-semibold">Group:</span> {attendee.group || '-'}</div>
-            <div><span class="font-semibold">Last Updated:</span> {formatDate(attendee.lastUpdated)}</div>
-            <div class="flex items-center gap-2">
-                <label>
-                    <input type="radio" checked={attendee.present} on:change={() => handleTogglePresent(attendee.id, !attendee.present)} />
-                    Present
-                </label>
+        <!-- Your analytics section remains the same -->
+        <div class="text-center mt-2">
+            <Card.Title>Analytics</Card.Title>
+            <Card.Description>View the attendance statistics.</Card.Description>
             </div>
-            <!-- Add edit/delete buttons if needed -->
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <Card.Root class="w-full">
+                <Card.Header
+                    class="flex flex-row items-center justify-between space-y-0 pb-2"
+                >
+                    <Card.Title class="text-sm font-medium"
+                        >Total Poeple</Card.Title
+                    >
+                </Card.Header>
+                <Card.Content>
+                    <div class="text-2xl font-bold">1211</div>
+                </Card.Content>
+            </Card.Root>
+            <Card.Root class="w-full">
+                <Card.Header
+                    class="flex flex-row items-center justify-between space-y-0 pb-2"
+                >
+                    <Card.Title class="text-sm font-medium"
+                        >Poeple Present</Card.Title
+                    >
+                </Card.Header>
+                <Card.Content>
+                    <div class="text-2xl font-bold">210</div>
+                </Card.Content>
+            </Card.Root>
+            <Card.Root class="w-full">
+                <Card.Header
+                    class="flex flex-row items-center justify-between space-y-0 pb-2"
+                >
+                    <Card.Title class="text-sm font-medium"
+                        >New poeple</Card.Title
+                    >
+                </Card.Header>
+                <Card.Content>
+                    <div class="text-2xl font-bold">24</div>
+                </Card.Content>
+            </Card.Root>
         </div>
-    {/each}
-</div>
-</div>
+    </main>
 
 <!-- Add Person Modal -->
-{#if showAddModal}
-<div class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-        <h3 class="text-lg font-medium mb-4">Add New Person</h3>
-        <form on:submit|preventDefault={handleAddAttendee}>
-            <div class="mb-4">
-                <label>Name*</label>
-                <input type="text" bind:value={newName} required class="w-full border rounded px-3 py-2"/>
+    {#if isAddModalOpen}
+        <div
+            class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+        >
+            <div class="bg-background rounded-lg p-6 max-w-md w-full">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Add New Person</h3>
+                    <button
+                        on:click={() => (isAddModalOpen = false)}
+                        class="text-muted-foreground hover:text-foreground"
+                    >
+                        &times;
+                    </button>
             </div>
-            <div class="mb-4">
-                <label>Contact Information*</label>
-                <input type="text" bind:value={newTelephone} required class="w-full border rounded px-3 py-2"/>
-            </div>
-            <div class="mb-4">
-                <label>Age Range</label>
-                <input type="text" bind:value={newAgeRange} class="w-full border rounded px-3 py-2"/>
-            </div>
-            <div class="mb-4">
-                <label>Are you new?</label>
-                <select bind:value={isNew} class="w-full border rounded px-3 py-2">
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                </select>
-            </div>
-            <div class="mb-4">
-                <label>Do you have a mentor?</label>
-                <select bind:value={hasMentor} class="w-full border rounded px-3 py-2">
-                    <option value="yes">Yes</option>
-                    <option value="no">No</option>
-                </select>
-            </div>
-            <div class="mb-4">
-                <label>Residence</label>
-                <input type="text" bind:value={newResidence} class="w-full border rounded px-3 py-2"/>
-            </div>
-            <div class="flex justify-end gap-2">
-                <button type="button" on:click={() => showAddModal = false} class="px-4 py-2 bg-gray-200 rounded">Cancel</button>
-                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">Add</button>
-            </div>
-        </form>
-    </div>
-</div>
-{/if}
+                <p class="mb-4 text-muted-foreground">
+                    Fill in the details for the new attendee.
+                </p>
 
-<!-- Edit Attendee Modal -->
-{#if showEditModal && currentAttendee}
-    <div
-        class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50"
-        role="dialog"
-        tabindex="0"
-        on:click|self={() => (showEditModal = false)}
-        on:keydown={(e) => {
-            if (e.key === "Escape") showEditModal = false;
-        }}
-    >
-        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-md">
-            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">
-                Edit Attendee
-            </h3>
-            <form on:submit|preventDefault={handleUpdateAttendee}>
-                <div class="mb-4">
-                    <label
-                        for="edit-name"
-                        class="block text-sm font-medium text-gray-700"
-                        >Name*</label
-                    >
-                    <input
-                        type="text"
-                        id="edit-name"
-                        bind:value={currentAttendee.name}
-                        required
-                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    />
+                <div class="grid gap-4 mb-6">
+                    <div>
+                        <label for="name" class="block text-sm font-medium mb-1"
+                            >Name</label
+                        >
+                        <Input
+                            id="name"
+                            bind:value={newPerson.name}
+                            class="w-full"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            for="phone"
+                            class="block text-sm font-medium mb-1">Phone</label
+                        >
+                        <Input
+                            id="phone"
+                            bind:value={newPerson.phone}
+                            class="w-full"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            for="location"
+                            class="block text-sm font-medium mb-1"
+                            >Location</label
+                        >
+                        <Input
+                            id="location"
+                            bind:value={newPerson.location}
+                            class="w-full"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            for="ageGroup"
+                            class="block text-sm font-medium mb-1"
+                            >Age Group</label
+                        >
+                        <Input
+                            id="ageGroup"
+                            bind:value={newPerson.ageGroup}
+                            class="w-full"
+                        />
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input id="isNew" type="checkbox" bind:checked={newPerson.isNew} />
+                        <label for="isNew" class="text-sm">Are you new?</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input id="hasMentor" type="checkbox" bind:checked={newPerson.hasMentor} />
+                        <label for="hasMentor" class="text-sm">Do you have a mentor?</label>
+                    </div>
                 </div>
-                <div class="mb-4">
-                    <label
-                        for="edit-group"
-                        class="block text-sm font-medium text-gray-700"
-                        >Group (Optional)</label
+
+                <div class="flex justify-end gap-2">
+                    <Button
+                        variant="outline"
+                        on:click={() => (isAddModalOpen = false)}>Cancel</Button
                     >
-                    <input
-                        type="text"
-                        id="edit-group"
-                        bind:value={currentAttendee.group}
-                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                    />
+                    <Button on:click={handleAddPerson}>Add Person</Button>
                 </div>
-                <div class="mb-4">
-                    <label
-                        for="edit-present"
-                        class="block text-sm font-medium text-gray-700"
-                        >Present</label
-                    >
-                    <input
-                        id="edit-present"
-                        type="checkbox"
-                        bind:checked={currentAttendee.present}
-                        class="form-checkbox h-5 w-5 text-indigo-600 rounded focus:ring-indigo-500 border-gray-300"
-                    />
-                </div>
-                <div class="mt-6 flex justify-end space-x-3">
-                    <button
-                        type="button"
-                        on:click={() => (showEditModal = false)}
-                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md border border-gray-300"
-                        >Cancel</button
-                    >
-                    <button
-                        type="submit"
-                        class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-sm"
-                        >Save Changes</button
-                    >
-                </div>
-            </form>
+            </div>
         </div>
-    </div>
-{/if}
+    {/if}
 
-<style>
-    /* For Tailwind CSS, create app.css or global.css and import it:
-       @tailwind base; @tailwind components; @tailwind utilities;
-       Then link it in app.html: <link rel="stylesheet" href="%sveltekit.assets%/app.css">
-    */
-    /* Or basic styles here if not using Tailwind */
-    .container {
-        max-width: 1200px;
-    }
-    /* Add more specific styles for modals if not using a UI library or Tailwind */
-</style>
+    <!-- Edit Person Modal -->
+    {#if isEditModalOpen && editingPerson}
+        <div
+            class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+        >
+            <div class="bg-background rounded-lg p-6 max-w-md w-full">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Edit Person</h3>
+                    <button
+                        on:click={() => (isEditModalOpen = false)}
+                        class="text-muted-foreground hover:text-foreground"
+                    >
+                        &times;
+                    </button>
+                </div>
+                <p class="mb-4 text-muted-foreground">
+                    Make changes to the attendee's details.
+                </p>
+
+                <div class="grid gap-4 mb-6">
+                    <div>
+                        <label
+                            for="edit-name"
+                            class="block text-sm font-medium mb-1">Name</label
+                        >
+                        <Input
+                            id="edit-name"
+                            bind:value={editingPerson.name}
+                            class="w-full"
+                        />
+                    </div>
+                    <div>
+                        <label
+                            for="edit-phone"
+                            class="block text-sm font-medium mb-1">Phone</label
+                        >
+                        <Input
+                            id="edit-phone"
+                            bind:value={editingPerson.phone}
+                            class="w-full"
+                        />
+                    </div>
+                    <div>
+                    <label
+                            for="edit-location"
+                            class="block text-sm font-medium mb-1"
+                            >Location</label
+                        >
+                        <Input
+                            id="edit-location"
+                            bind:value={editingPerson.location}
+                            class="w-full"
+                    />
+                </div>
+                    <div>
+                    <label
+                            for="edit-ageGroup"
+                            class="block text-sm font-medium mb-1"
+                            >Age Group</label
+                        >
+                        <Input
+                            id="edit-ageGroup"
+                            bind:value={editingPerson.ageGroup}
+                            class="w-full"
+                        />
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <Button
+                        variant="outline"
+                        on:click={() => (isEditModalOpen = false)}
+                        >Cancel</Button
+                    >
+                    <Button on:click={handleEditPerson}>Save Changes</Button>
+                </div>
+            </div>
+        </div>
+    {/if}
+    </div>

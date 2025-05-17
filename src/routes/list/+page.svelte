@@ -3,6 +3,7 @@
     import { attendees } from '$lib/stores/attendeeStore.js';
     import * as XLSX from 'xlsx';
     import { toast } from '@zerodevx/svelte-toast';
+    import * as Table from '$lib/components/ui/table';
 
     let attendeeList = [];
 
@@ -27,26 +28,29 @@
 <div class="container mx-auto p-4">
     <h1 class="text-2xl font-bold mb-4">All Attendees</h1>
     <button on:click={exportToXLSX} class="mb-4 px-4 py-2 bg-green-600 text-white rounded">Export to XLSX</button>
-    <table class="min-w-full divide-y divide-gray-200 bg-white shadow rounded">
-        <thead>
-            <tr>
-                <th class="px-4 py-2">Name</th>
-                <th class="px-4 py-2">Telephone</th>
-                <th class="px-4 py-2">Group</th>
-                <th class="px-4 py-2">Present</th>
-                <th class="px-4 py-2">Last Updated</th>
-            </tr>
-        </thead>
-        <tbody>
+    <Table.Root>
+        <Table.Caption>List of all attendees</Table.Caption>
+        <Table.Header>
+            <Table.Row>
+                <Table.Head>Name</Table.Head>
+                <Table.Head>Phone</Table.Head>
+                <Table.Head>Location</Table.Head>
+                <Table.Head>Age Group</Table.Head>
+                <Table.Head>Are you new?</Table.Head>
+                <Table.Head>Do you have a mentor?</Table.Head>
+            </Table.Row>
+        </Table.Header>
+        <Table.Body>
             {#each attendeeList as attendee}
-                <tr>
-                    <td class="px-4 py-2">{attendee.name}</td>
-                    <td class="px-4 py-2">{attendee.telephone || '-'}</td>
-                    <td class="px-4 py-2">{attendee.group || '-'}</td>
-                    <td class="px-4 py-2">{attendee.present ? 'Yes' : 'No'}</td>
-                    <td class="px-4 py-2">{attendee.lastUpdated?.seconds ? new Date(attendee.lastUpdated.seconds * 1000).toLocaleString() : ''}</td>
-                </tr>
+                <Table.Row>
+                    <Table.Cell class="font-medium">{attendee.name}</Table.Cell>
+                    <Table.Cell>{attendee.phone || '-'}</Table.Cell>
+                    <Table.Cell>{attendee.location || '-'}</Table.Cell>
+                    <Table.Cell>{attendee.ageGroup || '-'}</Table.Cell>
+                    <Table.Cell>{attendee.isNew ? 'Yes' : 'No'}</Table.Cell>
+                    <Table.Cell>{attendee.hasMentor ? 'Yes' : 'No'}</Table.Cell>
+                </Table.Row>
             {/each}
-        </tbody>
-    </table>
+        </Table.Body>
+    </Table.Root>
 </div>

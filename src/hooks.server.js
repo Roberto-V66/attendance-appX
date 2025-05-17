@@ -1,7 +1,7 @@
 // src/hooks.server.js
 import { redirect } from '@sveltejs/kit';
 
-const PROTECTED_ROUTES = ['/']; // Add other routes like /attendees if you create them
+const PROTECTED_ROUTES = ['/','/list']; // Add other routes like /attendees if you create them
 
 export async function handle({ event, resolve }) {
     const sessionToken = event.cookies.get('session_token');
