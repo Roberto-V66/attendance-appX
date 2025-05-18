@@ -1,5 +1,4 @@
-- Verify the functioning of export
-- How can data be inserted
-- Test the log out and toast
-- Think about the data structure given there are multiple months
-- Work on the UI (match cith shadcn)
+- Present logic: a presnt column should create so that when clicked, it is marked
+- Firebase problem 1150 to 0 to 1150, is it network ?
+- Enhance UI/UX
+- Start thnkiong about github documentation and hosting

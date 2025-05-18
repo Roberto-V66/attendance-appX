@@ -4,6 +4,7 @@
     import * as XLSX from 'xlsx';
     import { toast } from '@zerodevx/svelte-toast';
     import * as Table from '$lib/components/ui/table';
+    import { Button } from '$lib/components/ui/button';
 
     let attendeeList = [];
 
@@ -13,10 +14,11 @@
     function exportToXLSX() {
         const ws = XLSX.utils.json_to_sheet(attendeeList.map(a => ({
             Name: a.name,
-            Telephone: a.telephone || '',
-            Group: a.group || '',
-            Present: a.present ? 'Yes' : 'No',
-            LastUpdated: a.lastUpdated?.seconds ? new Date(a.lastUpdated.seconds * 1000).toLocaleString() : ''
+            Phone: a.phone || '',
+            Location: a.location || '',
+            'Age Group': a.ageGroup || '',
+            'Are you new?': a.isNew ? 'Yes' : 'No',
+            'Do you have a mentor?': a.hasMentor ? 'Yes' : 'No',
         })));
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Attendees");
@@ -27,7 +29,9 @@
 
 <div class="container mx-auto p-4">
     <h1 class="text-2xl font-bold mb-4">All Attendees</h1>
-    <button on:click={exportToXLSX} class="mb-4 px-4 py-2 bg-green-600 text-white rounded">Export to XLSX</button>
+    <Button on:click={exportToXLSX} class="mb-4">
+        Export to XLSX
+    </Button>
     <Table.Root>
         <Table.Caption>List of all attendees</Table.Caption>
         <Table.Header>
