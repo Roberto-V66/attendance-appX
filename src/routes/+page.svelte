@@ -11,11 +11,20 @@
     import { Button } from "$lib/components/ui/button/index.js";
     import * as Card from "$lib/components/ui/card/index.js";
     import { Input } from "$lib/components/ui/input/index.js";
+    import { attendees } from '$lib/stores/attendeeStore.js';
+    import * as XLSX from 'xlsx';
+    import { onMount } from 'svelte';
 
     // Modal state
     let isAddModalOpen = false;
     let isEditModalOpen = false;
+    let isImportModalOpen = false;
     let editingPerson = null;
+    let importError = '';
+    let importSuccess = '';
+    let importLoading = false;
+    let importFile;
+    let confirmReplaceData = false;
 
     // Form data
     let newPerson = {
@@ -27,49 +36,33 @@
         hasMentor: false
     };
 
-    // People data
-    let people = [
-        {
-            id: 1,
-            name: "John Doe",
-            phone: "699456723",
-            location: "Yaounde",
-            ageGroup: "Young Adult",
-            present: false,
-        },
-        {
-            id: 2,
-            name: "John Komme",
-            phone: "699422223",
-            location: "Douala",
-            ageGroup: "Adult",
-            present: false,
-        },
-        {
-            id: 3,
-            name: "Sarah Johnson",
-            phone: "677889900",
-            location: "Bamenda",
-            ageGroup: "Teen",
-            present: true,
-        },
-        {
-            id: 4,
-            name: "Michael Brown",
-            phone: "655443322",
-            location: "Buea",
-            ageGroup: "Senior",
-            present: false,
-        },
-    ];
+    // Use Firestore data
+    let people = [];
+    $: people = $attendees;
+
+    // Search
+    let search = '';
+    $: filteredPeople = search.trim().length > 0
+        ? people.filter(p =>
+            (p.name && p.name.toLowerCase().includes(search.toLowerCase())) ||
+            (p.phone && p.phone.toLowerCase().includes(search.toLowerCase()))
+        )
+        : [];
+
+    // Analytics
+    $: total = people.length;
+    $: present = people.filter(p => p.present).length;
+    $: newCount = people.filter(p => p.isNew).length;
+    $: withMentor = people.filter(p => p.hasMentor).length;
 
     // Toggle presence
-    function togglePresence(personId) {
-        people = people.map((person) =>
-            person.id === personId
-                ? { ...person, present: !person.present }
-                : person,
-        );
+    async function togglePresence(personId, currentStatus) {
+        try {
+            await attendees.togglePresent(personId, currentStatus);
+        } catch (error) {
+            console.error("Error toggling presence:", error);
+            alert("Failed to update attendance status. Please try again.");
+        }
     }
 
     // Open edit modal
@@ -78,34 +71,115 @@
         isEditModalOpen = true;
     }
 
-    // Handle add person
-    function handleAddPerson() {
-        people = [
-            ...people,
-            {
-                id: Date.now(), // simple ID generation
-                ...newPerson,
-                present: false,
-            },
-        ];
-        // Reset form
-        newPerson = {
-            name: "",
-            phone: "",
-            location: "",
-            ageGroup: "",
-            isNew: false,
-            hasMentor: false
-        };
-        isAddModalOpen = false;
+    // Add Person
+    async function handleAddPerson() {
+        try {
+            await attendees.addAttendee(newPerson);
+            newPerson = {
+                name: "",
+                phone: "",
+                location: "",
+                ageGroup: "",
+                isNew: false,
+                hasMentor: false
+            };
+            isAddModalOpen = false;
+        } catch (e) {
+            console.error("Error adding person:", e);
+            alert(e.message || "Failed to add person. Please try again.");
+        }
     }
 
-    // Handle edit person
-    function handleEditPerson() {
-        people = people.map((person) =>
-            person.id === editingPerson.id ? editingPerson : person,
-        );
-        isEditModalOpen = false;
+    // Handle edit person - Now connected to Firestore
+    async function handleEditPerson() {
+        try {
+            if (!editingPerson || !editingPerson.id) {
+                throw new Error("Invalid person data");
+            }
+            await attendees.updateAttendee(editingPerson.id, editingPerson);
+            isEditModalOpen = false;
+        } catch (error) {
+            console.error("Error updating person:", error);
+            alert(error.message || "Failed to update person. Please try again.");
+        }
+    }
+
+    // Handle Export - Now using the server endpoint
+    async function handleExport() {
+        try {
+            // Redirect to or fetch from server endpoint
+            window.location.href = '/export';
+        } catch (error) {
+            console.error("Error exporting data:", error);
+            alert("Failed to export data. Please try again.");
+        }
+    }
+
+    // Import XLSX
+    async function handleImport() {
+        importError = '';
+        importSuccess = '';
+        if (!importFile) {
+            importError = 'Please select a file.';
+            return;
+        }
+        
+        if (!confirmReplaceData) {
+            importError = 'Please confirm you want to replace existing data.';
+            return;
+        }
+        
+        importLoading = true;
+        try {
+            const data = await readExcelFile(importFile);
+            
+            // Validate headers
+            const requiredHeaders = ['Name', 'Phone', 'Location', 'Age Group', 'Are you new?', 'Do you have a mentor?'];
+            const fileHeaders = Object.keys(data[0] || {});
+            
+            const missingHeaders = requiredHeaders.filter(header => 
+                !fileHeaders.includes(header));
+                
+            if (missingHeaders.length > 0) {
+                throw new Error(`Missing required headers: ${missingHeaders.join(', ')}`);
+            }
+            
+            // Import with replace option set to true
+            const result = await attendees.importFromExcel(data, true);
+            if (result.success) {
+                importSuccess = result.message;
+                isImportModalOpen = false;
+            } else {
+                importError = result.message;
+            }
+        } catch (err) {
+            importError = err.message || 'Failed to import file';
+        } finally {
+            importLoading = false;
+        }
+    }
+    
+    async function readExcelFile(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    if (e.target.result instanceof ArrayBuffer) {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                        resolve(jsonData);
+                    } else {
+                        reject(new Error('File could not be read as ArrayBuffer'));
+                    }
+                } catch (err) {
+                    reject(new Error('Failed to parse Excel file'));
+                }
+            };
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsArrayBuffer(file);
+        });
     }
 </script>
 
@@ -116,15 +190,16 @@
         <div
             class="flex w-full items-center gap-4 md:ml-auto md:gap-2 lg:gap-4"
         >
-            <form class="ml-auto flex-1 sm:flex-initial">
+            <form class="ml-auto flex-1 sm:flex-initial" on:submit|preventDefault>
                 <div class="relative">
                     <Search
                         class="text-muted-foreground absolute left-2.5 top-2.5 h-4 w-4"
                     />
                     <Input
                         type="search"
-                        placeholder="Search poeple..."
+                        placeholder="Search people by name or phone..."
                         class="pl-8 sm:w-[400px] md:w-[800px] lg:w-[700px]"
+                        bind:value={search}
                     />
                 </div>
             </form>
@@ -152,12 +227,22 @@
                             Add
                         </Button>
 
+                        <!-- Import Button -->
+                        <Button
+                            size="sm"
+                            class="h-8 gap-1"
+                            on:click={() => (isImportModalOpen = true)}
+                        >
+                            <File class="h-3.5 w-3.5" />
+                            Import
+                        </Button>
+
                         <!-- Your other buttons remain the same -->
-                        <Button href="./list" size="sm" class="ml-auto gap-1">
+                        <Button href="/list" size="sm" class="ml-auto gap-1">
                             View
                             <ArrowUpRight class="h-4 w-4" />
                         </Button>
-                        <Button href="##" size="sm" class="ml-auto gap-1">
+                        <Button on:click={handleExport} size="sm" class="ml-auto gap-1">
                             <Download class="h-3.5 w-3.5" />
                             Export
                         </Button>
@@ -172,127 +257,76 @@
                                 Logout
                             </Button>
                         </form>
-    </div>
+                    </div>
                 </Card.Header>
 
                 <Card.Content>
-                    <div
-                        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-                    >
-                        {#each people as person (person.id)}
-                            <Card.Root
-                                class="hover:shadow-lg transition-shadow duration-200"
-                            >
-                                <Card.Header>
-                                    <Card.Title class="truncate"
-                                        >{person.name}</Card.Title
-                                    >
-                                </Card.Header>
-                                <Card.Content class="space-y-2">
-                                    <p class="flex items-center gap-2">
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-4 w-4 text-muted-foreground"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
+                    {#if search.trim().length > 0}
+                        <div
+                            class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                        >
+                            {#each filteredPeople as person (person.id)}
+                                <Card.Root
+                                    class="hover:shadow-lg transition-shadow duration-200"
+                                >
+                                    <Card.Header>
+                                        <Card.Title class="truncate"
+                                            >{person.name}</Card.Title
                                         >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="2"
-                                                d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                                            />
-                                        </svg>
-                                        <span class="truncate"
-                                            >{person.phone}</span
-                                        >
-                                    </p>
-                                    <p class="flex items-center gap-2">
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-4 w-4 text-muted-foreground"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                        >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="2"
-                                                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                                            />
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="2"
-                                                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                                            />
-                                        </svg>
-                                        <span class="truncate"
-                                            >{person.location}</span
-                                        >
-                                    </p>
-                                    <p class="flex items-center gap-2">
-                                        <svg
-                                            xmlns="http://www.w3.org/2000/svg"
-                                            class="h-4 w-4 text-muted-foreground"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                        >
-                                            <path
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                stroke-width="2"
-                                                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                                            />
-                                        </svg>
-                                        <span class="truncate"
-                                            >{person.ageGroup}</span
-                                        >
-                                    </p>
-                                </Card.Content>
-                                <Card.Footer class="flex justify-between">
-                                    <Button
-                                        variant="outline"
-                                        on:click={() => openEditModal(person)}
-                                    >
-                                        Edit
-                                    </Button>
-                                    <Button
-                                        class={person.present
-                                            ? "bg-green-500 hover:bg-green-600"
-                                            : "bg-red-500 hover:bg-red-600"}
-                                        on:click={() =>
-                                            togglePresence(person.id)}
-                                    >
-                                        {person.present ? "Absent" : "Present"}
-                                    </Button>
-                                </Card.Footer>
-                            </Card.Root>
-                    {/each}
-            </div>
+                                    </Card.Header>
+                                    <Card.Content class="space-y-2">
+                                        <p class="flex items-center gap-2">
+                                            <span class="truncate"
+                                                >{person.phone}</span
+                                            >
+                                        </p>
+                                        <p class="flex items-center gap-2">
+                                            <span class="truncate"
+                                                >{person.ageGroup}</span
+                                            >
+                                        </p>
+                                        <div class="flex justify-between mt-4">
+                                            <Button 
+                                                size="sm" 
+                                                variant="outline"
+                                                on:click={() => togglePresence(person.id, person.present)}
+                                            >
+                                                {person.present ? 'Mark Absent' : 'Mark Present'}
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                on:click={() => openEditModal(person)}
+                                            >
+                                                Edit
+                                            </Button>
+                                        </div>
+                                    </Card.Content>
+                                </Card.Root>
+                            {/each}
+                        </div>
+                    {:else}
+                        <div class="text-center text-muted-foreground">Search to display attendees.</div>
+                    {/if}
                 </Card.Content>
             </Card.Root>
-    </div>
+        </div>
 
-        <!-- Your analytics section remains the same -->
+        <!-- Analytics Section -->
         <div class="text-center mt-2">
             <Card.Title>Analytics</Card.Title>
             <Card.Description>View the attendance statistics.</Card.Description>
-            </div>
+        </div>
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <Card.Root class="w-full">
                 <Card.Header
                     class="flex flex-row items-center justify-between space-y-0 pb-2"
                 >
                     <Card.Title class="text-sm font-medium"
-                        >Total Poeple</Card.Title
+                        >Total People</Card.Title
                     >
                 </Card.Header>
                 <Card.Content>
-                    <div class="text-2xl font-bold">1211</div>
+                    <div class="text-2xl font-bold">{total}</div>
                 </Card.Content>
             </Card.Root>
             <Card.Root class="w-full">
@@ -300,11 +334,11 @@
                     class="flex flex-row items-center justify-between space-y-0 pb-2"
                 >
                     <Card.Title class="text-sm font-medium"
-                        >Poeple Present</Card.Title
+                        >People Present</Card.Title
                     >
                 </Card.Header>
                 <Card.Content>
-                    <div class="text-2xl font-bold">210</div>
+                    <div class="text-2xl font-bold">{present}</div>
                 </Card.Content>
             </Card.Root>
             <Card.Root class="w-full">
@@ -312,17 +346,29 @@
                     class="flex flex-row items-center justify-between space-y-0 pb-2"
                 >
                     <Card.Title class="text-sm font-medium"
-                        >New poeple</Card.Title
+                        >New People</Card.Title
                     >
                 </Card.Header>
                 <Card.Content>
-                    <div class="text-2xl font-bold">24</div>
+                    <div class="text-2xl font-bold">{newCount}</div>
+                </Card.Content>
+            </Card.Root>
+            <Card.Root class="w-full">
+                <Card.Header
+                    class="flex flex-row items-center justify-between space-y-0 pb-2"
+                >
+                    <Card.Title class="text-sm font-medium"
+                        >With Mentor</Card.Title
+                    >
+                </Card.Header>
+                <Card.Content>
+                    <div class="text-2xl font-bold">{withMentor}</div>
                 </Card.Content>
             </Card.Root>
         </div>
     </main>
 
-<!-- Add Person Modal -->
+    <!-- Add Person Modal -->
     {#if isAddModalOpen}
         <div
             class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
@@ -336,7 +382,7 @@
                     >
                         &times;
                     </button>
-            </div>
+                </div>
                 <p class="mb-4 text-muted-foreground">
                     Fill in the details for the new attendee.
                 </p>
@@ -451,7 +497,7 @@
                         />
                     </div>
                     <div>
-                    <label
+                        <label
                             for="edit-location"
                             class="block text-sm font-medium mb-1"
                             >Location</label
@@ -460,10 +506,10 @@
                             id="edit-location"
                             bind:value={editingPerson.location}
                             class="w-full"
-                    />
-                </div>
+                        />
+                    </div>
                     <div>
-                    <label
+                        <label
                             for="edit-ageGroup"
                             class="block text-sm font-medium mb-1"
                             >Age Group</label
@@ -473,6 +519,14 @@
                             bind:value={editingPerson.ageGroup}
                             class="w-full"
                         />
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input id="edit-isNew" type="checkbox" bind:checked={editingPerson.isNew} />
+                        <label for="edit-isNew" class="text-sm">Are you new?</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input id="edit-hasMentor" type="checkbox" bind:checked={editingPerson.hasMentor} />
+                        <label for="edit-hasMentor" class="text-sm">Do you have a mentor?</label>
                     </div>
                 </div>
 
@@ -487,4 +541,37 @@
             </div>
         </div>
     {/if}
-    </div>
+
+    <!-- Import Modal -->
+    {#if isImportModalOpen}
+        <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div class="bg-background rounded-lg p-6 max-w-md w-full">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Import Attendees</h3>
+                    <button on:click={() => (isImportModalOpen = false)} class="text-muted-foreground hover:text-foreground">&times;</button>
+                </div>
+                <div class="mb-4 text-muted-foreground">
+                    <p class="mb-2">Import an XLSX file with these exact headers:</p>
+                    <p class="font-mono text-xs bg-gray-100 p-2 rounded">Name, Phone, Location, Age Group, Are you new?, Do you have a mentor?</p>
+                </div>
+                <input type="file" accept=".xlsx,.xls" on:change={e => importFile = e.target.files?.[0]} class="mb-4" />
+                
+                <div class="flex items-center gap-2 mb-4">
+                    <input id="confirm-replace" type="checkbox" bind:checked={confirmReplaceData} />
+                    <label for="confirm-replace" class="text-sm font-medium text-red-600">I confirm that this will replace all existing data</label>
+                </div>
+                
+                {#if importError}
+                    <div class="text-red-600 mb-2">{importError}</div>
+                {/if}
+                {#if importSuccess}
+                    <div class="text-green-600 mb-2">{importSuccess}</div>
+                {/if}
+                <div class="flex justify-end gap-2">
+                    <Button variant="outline" on:click={() => (isImportModalOpen = false)}>Cancel</Button>
+                    <Button on:click={handleImport} disabled={importLoading}>{importLoading ? 'Importing...' : 'Import'}</Button>
+                </div>
+            </div>
+        </div>
+    {/if}
+</div>
