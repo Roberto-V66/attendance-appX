@@ -19,6 +19,7 @@
 		"autoprefixer": "^10.4.20",
 		"bits-ui": "^0.22.0",
 		"clsx": "^2.1.1",
+		"lucide-svelte": "^0.511.0",
 		"svelte": "^5.0.0",
 		"svelte-motion": "^0.12.2",
 		"tailwind-merge": "^3.3.0",
@@ -34,8 +35,8 @@
 		"@zerodevx/svelte-toast": "^0.9.6",
 		"firebase": "^11.6.0",
 		"localforage": "^1.10.0",
-		"lucide-svelte": "^0.507.0",
 		"postcss": "^8.5.3",
+		"svelte-sonner": "^1.0.1",
 		"xlsx": "^0.18.5"
 	}
 }

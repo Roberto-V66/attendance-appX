@@ -1,34 +1,31 @@
 // src/routes/export/+server.js
 import * as XLSX from 'xlsx';
 import { db } from '$lib/firebase/firebase.js';
-import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy } from 'firebase/firestore';
 
-export async function POST({ url, cookies }) { // Changed to POST to allow form submission
-    // Basic check if user is authenticated (align with your hooks.server.js logic)
+export async function POST({ cookies }) {
     const sessionToken = cookies.get('session_token');
-    if (!sessionToken) { // This is a basic check, ensure robust auth in hooks
+    if (!sessionToken) {
         return new Response("Unauthorized", { status: 401 });
     }
 
-    const attendeesCollectionRef = collection(db, 'attendees');
-    let q = query(attendeesCollectionRef, orderBy('name')); // Default: all data
-
-    // Optional: Filter by group if a 'group' query parameter is provided
-    const filterGroup = url.searchParams.get('group');
-    if (filterGroup) {
-        q = query(attendeesCollectionRef, where('group', '==', filterGroup), orderBy('name'));
-    }
-
     try {
+        const attendeesCollectionRef = collection(db, 'attendees');
+        const q = query(attendeesCollectionRef, orderBy('name'));
         const querySnapshot = await getDocs(q);
+
         const attendeesData = querySnapshot.docs.map(doc => {
             const data = doc.data();
             return {
-                ID: doc.id,
-                Name: data.name,
-                Group: data.group || 'N/A',
-                Present: data.present ? 'Yes' : 'No',
-                LastUpdated: data.lastUpdated ? new Date(data.lastUpdated.seconds * 1000).toLocaleString() : 'N/A'
+                'Name': data.name || '',
+                'Phone': data.phone || '',
+                'Location': data.location || '',
+                'Age Group': data.ageGroup || '',
+                'New?': data.isNew ? 'Yes' : 'No',
+                'Mentor?': data.hasMentor ? 'Yes' : 'No',
+                'Status': data.present ? 'Present' : 'Absent',
+                'Last Updated': data.lastUpdated ? 
+                    new Date(data.lastUpdated.seconds * 1000).toLocaleString() : 'N/A'
             };
         });
 
@@ -36,12 +33,30 @@ export async function POST({ url, cookies }) { // Changed to POST to allow form 
             return new Response("No data to export", { status: 404 });
         }
 
+        // Create worksheet with custom headers
         const worksheet = XLSX.utils.json_to_sheet(attendeesData);
+        
+        // Set column widths
+        worksheet['!cols'] = [
+            { wch: 25 }, // Name
+            { wch: 15 }, // Phone
+            { wch: 20 }, // Location
+            { wch: 12 }, // Age Group
+            { wch: 8 },  // New?
+            { wch: 10 }, // Mentor?
+            { wch: 12 }, // Status
+            { wch: 20 }  // Last Updated
+        ];
+
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendees');
 
-        // Set headers for file download
-        const buf = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+        // Generate buffer
+        const buf = XLSX.write(workbook, { 
+            type: 'buffer', 
+            bookType: 'xlsx',
+            cellStyles: true 
+        });
 
         return new Response(buf, {
             status: 200,
@@ -52,7 +67,7 @@ export async function POST({ url, cookies }) { // Changed to POST to allow form 
         });
 
     } catch (error) {
-        console.error("Error exporting to XLSX:", error);
+        console.error("Export error:", error);
         return new Response("Error generating export", { status: 500 });
     }
 }
