@@ -6,6 +6,7 @@
   import { Badge } from '$lib/components/ui/badge/index.js';
   import { ArrowDownToLine, Loader2, AlertTriangle, Check, AlertCircle, X } from 'lucide-svelte';
   import { onMount } from 'svelte';
+  import {BookType} from 'lucide-svelte';
 
   let attendeeList: any[] = [];
   let isLoading = true;
@@ -63,7 +64,12 @@
     </div>
   {/if}
 
-  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+  <div class="bg-background sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b px-4 sm:px-6">
+    <div class="flex items-center gap-2">
+      <a href="/">
+        <BookType/> </a
+      >
+    </div>
     <h1 class="text-3xl font-bold">All Attendees</h1>
     <Button on:click={handleServerExport} variant="outline">
       <ArrowDownToLine class="mr-2 h-4 w-4" /> Export All to XLSX

@@ -2,6 +2,7 @@
   import {
     ArrowUpRight,
     Search,
+    BookType,
     LogOut,
     Download,
     CirclePlus,
@@ -365,7 +366,8 @@
     class="bg-background sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b px-4 sm:px-6"
   >
     <div class="flex items-center gap-2">
-      <a href="/" class="text-lg font-semibold hidden sm:block">AttendanceApp</a
+      <a href="/">
+        <BookType/> </a
       >
     </div>
     <div class="flex-1 max-w-xl">
@@ -502,7 +504,7 @@
               </div>
             {/if}
           {:else}
-            <div class="text-center py-8 text-muted-foreground">
+            <div class="mb-4 text-center text-sm sm:text-base text-muted-foreground">
               Search by name or phone to display attendee cards.
             </div>
           {/if}
@@ -510,46 +512,38 @@
       </Card.Root>
     </div>
 
-    <!-- Analytics Section -->
-    <div class="mt-8 mx-auto w-full max-w-6xl">
-      <h2 class="text-xl font-semibold mb-1 text-center">Analytics</h2>
-      <p class="text-muted-foreground mb-4 text-center">
+     <div class="mt-6 mx-auto w-full max-w-6xl">
+      <h2 class="text-lg sm:text-2xl font-semibold mb-2 text-center text-primary-dark">Analytics</h2>
+      <p class="mb-4 text-center text-sm sm:text-base text-muted-foreground ">
         Overview of attendance statistics.
       </p>
       {#if attendeesError && storeInitialized}
-        <div
-          class="text-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-md"
-        >
+        <div class="text-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-md">
           <AlertCircle class="inline-block mr-2 h-5 w-5" />
           Could not load analytics: {attendeesError}.
-          <Button
-            size="sm"
-            variant="link"
-            on:click={() => attendeesStore.refreshData()}
-            >Try refreshing.</Button
-          >
+          <Button size="sm" variant="link" on:click={() => attendeesStore.refreshData()} class="text-red-700">Try refreshing.</Button>
         </div>
       {/if}
       <div class="grid gap-4 md:grid-cols-3">
         {#each [{ title: "Total Attendees", value: total, icon: "group" }, { title: "Currently Present", value: present, icon: "check" }, { title: "New Attendees", value: newCount, icon: "new" }] as item (item.title)}
-          <Card.Root class="hover:shadow-md transition-shadow">
-            <Card.Header class="flex flex-row items-center justify-between">
-              <Card.Title class="text-lg font-medium">{item.title}</Card.Title>
+          <Card.Root class="hover:shadow-md transition-shadow border border-primary/10 bg-white">
+            <Card.Header class="flex flex-row items-center justify-between p-4">
+              <Card.Title class="text-base sm:text-lg font-medium text-primary-dark">{item.title}</Card.Title>
               {#if item.icon === "group"}
-                <Users class="h-6 w-6 text-muted-foreground" />
+                <Users class="h-5 w-5 text-primary/70" />
               {:else if item.icon === "check"}
-                <CheckCircle class="h-6 w-6 text-muted-foreground" />
+                <CheckCircle class="h-5 w-5 text-primary/70" />
               {:else}
-                <Sparkles class="h-6 w-6 text-muted-foreground" />
+                <Sparkles class="h-5 w-5 text-primary/70" />
               {/if}
             </Card.Header>
-            <Card.Content>
+            <Card.Content class="p-4 pt-0">
               {#if isLoadingAttendees && !storeInitialized}
-                <Skeleton class="h-8 w-full mt-2" />
+                <Skeleton class="h-8 w-full mt-2 bg-primary/10" />
               {:else if attendeesError}
-                <span class="text-destructive text-sm">Error loading data</span>
+                <span class="text-red-600 text-sm">Error loading data</span>
               {:else}
-                <div class="text-3xl font-bold text-center py-4">
+                <div class="text-2xl sm:text-3xl font-bold text-center py-2 text-primary-dark">
                   {item.value}
                 </div>
               {/if}
@@ -605,7 +599,7 @@
               id="phone"
               type="tel"
               bind:value={newPerson.phone}
-              placeholder="123-456-7890"
+              placeholder="691 234 567"
             />
           </div>
           <div class="grid gap-2">
@@ -613,7 +607,7 @@
             <Input
               id="location"
               bind:value={newPerson.location}
-              placeholder="City, State"
+              placeholder="Quarter"
             />
           </div>
           <div class="grid gap-2">
@@ -621,7 +615,7 @@
             <Input
               id="ageGroup"
               bind:value={newPerson.ageGroup}
-              placeholder="e.g., 25-34"
+              placeholder="e.g., JA"
             />
           </div>
           <div class="flex items-center gap-2 pt-2">
