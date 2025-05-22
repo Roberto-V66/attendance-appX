@@ -16,6 +16,7 @@
     Users,
     CheckCircle,
     Sparkles,
+    BarChart2,
   } from "lucide-svelte";
 
   import * as AlertDialog from "$lib/components/ui/alert-dialog";
@@ -82,21 +83,6 @@
             (p.phone && p.phone.toLowerCase().includes(search.toLowerCase())),
         )
       : [];
-
-  // Analytics
-  $: total = storeInitialized && !attendeesError ? people.length : 0;
-  $: present =
-    storeInitialized && !attendeesError
-      ? people.filter((p) => p.present).length
-      : 0;
-  $: newCount =
-    storeInitialized && !attendeesError
-      ? people.filter((p) => p.isNew).length
-      : 0;
-  $: withMentor =
-    storeInitialized && !attendeesError
-      ? people.filter((p) => p.hasMentor).length
-      : 0;
 
   function showStatus(type: "success" | "error" | "info", text: string) {
     statusMessage = { type, text };
@@ -418,8 +404,8 @@
             >
               <FileIcon class="h-3.5 w-3.5" /> Import
             </Button>
-            <Button href="/list" size="sm" variant="outline" class="h-8 gap-1">
-              View Full List <ArrowUpRight class="h-4 w-4" />
+            <Button href="/stats" size="sm" variant="outline" class="h-8 gap-1">
+              <BarChart2 class="h-3.5 w-3.5" /> View Stats
             </Button>
             <Button
               on:click={handleExport}
@@ -510,47 +496,6 @@
           {/if}
         </Card.Content>
       </Card.Root>
-    </div>
-
-     <div class="mt-6 mx-auto w-full max-w-6xl">
-      <h2 class="text-lg sm:text-2xl font-semibold mb-2 text-center text-primary-dark">Analytics</h2>
-      <p class="mb-4 text-center text-sm sm:text-base text-muted-foreground ">
-        Overview of attendance statistics.
-      </p>
-      {#if attendeesError && storeInitialized}
-        <div class="text-center p-4 bg-red-100 border border-red-400 text-red-700 rounded-md">
-          <AlertCircle class="inline-block mr-2 h-5 w-5" />
-          Could not load analytics: {attendeesError}.
-          <Button size="sm" variant="link" on:click={() => attendeesStore.refreshData()} class="text-red-700">Try refreshing.</Button>
-        </div>
-      {/if}
-      <div class="grid gap-4 md:grid-cols-3">
-        {#each [{ title: "Total Attendees", value: total, icon: "group" }, { title: "Currently Present", value: present, icon: "check" }, { title: "New Attendees", value: newCount, icon: "new" }] as item (item.title)}
-          <Card.Root class="hover:shadow-md transition-shadow border border-primary/10 bg-white">
-            <Card.Header class="flex flex-row items-center justify-between p-4">
-              <Card.Title class="text-base sm:text-lg font-medium text-primary-dark">{item.title}</Card.Title>
-              {#if item.icon === "group"}
-                <Users class="h-5 w-5 text-primary/70" />
-              {:else if item.icon === "check"}
-                <CheckCircle class="h-5 w-5 text-primary/70" />
-              {:else}
-                <Sparkles class="h-5 w-5 text-primary/70" />
-              {/if}
-            </Card.Header>
-            <Card.Content class="p-4 pt-0">
-              {#if isLoadingAttendees && !storeInitialized}
-                <Skeleton class="h-8 w-full mt-2 bg-primary/10" />
-              {:else if attendeesError}
-                <span class="text-red-600 text-sm">Error loading data</span>
-              {:else}
-                <div class="text-2xl sm:text-3xl font-bold text-center py-2 text-primary-dark">
-                  {item.value}
-                </div>
-              {/if}
-            </Card.Content>
-          </Card.Root>
-        {/each}
-      </div>
     </div>
   </main>
 
