@@ -147,24 +147,34 @@
     formErrors = {};
   }
 
-  async function handleAddPerson() {
-    formErrors = {};
-    if (!newPerson.name.trim()) {
-      formErrors.name = "Name is required.";
-      return;
-    }
-    try {
-      await attendeesStore.addAttendee(newPerson);
-      showStatus("success", "Attendee added successfully!");
-      closeModal();
-    } catch (e: any) {
-      console.error("Error adding person:", e);
-      showStatus(
-        "error",
-        e.message || "Failed to add person. Please try again.",
-      );
-    }
+ async function handleAddPerson() {
+  formErrors = {};
+  if (!newPerson.name.trim()) {
+    formErrors.name = "Name is required.";
+    return;
   }
+  
+  const personDataToAdd = { ...newPerson }; // Capture the data before clearing
+  closeModal(); // Close modal immediately
+  showStatus("info", `Adding ${personDataToAdd.name}...`); // Optional: give some "in progress" feedback
+
+  try {
+    const result = await attendeesStore.addAttendee(personDataToAdd);
+    
+    if (result.success) {
+      showStatus("success", `${personDataToAdd.name} added successfully!`);
+    } else {
+      showStatus("error", "Failed to add attendee. It might be synced later if offline.");
+    }
+
+  } catch (e: any) {
+    console.error("Error adding person:", e);
+    showStatus(
+      "error",
+      e.message || "Failed to add person. It will be retried if you are offline.",
+    );
+  }
+}
 
   async function handleEditPerson() {
     formErrors = {};

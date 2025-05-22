@@ -1,112 +1,78 @@
 // src/lib/stores/attendeeStore.js
 import { writable } from 'svelte/store';
-import { db } from '$lib/firebase/firebase.js'; // Ensure this path is correct
+import { db } from  '$lib/firebase/firebase.js'; // Adjusted path based on common structure
 import {
     collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc,
-    Timestamp, query, orderBy, getDocs, writeBatch, getDoc
+    Timestamp, query, orderBy, writeBatch, getDocs // getDocs still needed for replaceAll in import
 } from 'firebase/firestore';
-// Removed toast import from here, let components handle UI feedback based on store state/method results
 
 const attendeesCollection = collection(db, 'attendees');
 
 function createAttendeesStore() {
     const store = writable({
         data: [],
-        loading: true,
+        loading: true, // Start in loading state
         error: null,
-        initialized: false // Tracks if the first load attempt (success or fail) has completed
+        initialized: false // Tracks if the first data load attempt has completed
     });
 
     let unsubscribeSnapshotListener = null;
-    let retryCount = 0;
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY_MS = 2000;
 
-    async function initializeStore(isRetry = false) {
-        if (!isRetry) {
-            store.update(s => ({ ...s, loading: true, error: null }));
-        }
+    function initializeStore() {
+        store.update(s => ({ ...s, loading: true, error: null }));
 
-        try {
-            const q = query(attendeesCollection, orderBy('name'));
-            
-            if (unsubscribeSnapshotListener) {
-                unsubscribeSnapshotListener();
-            }
-            
-            unsubscribeSnapshotListener = onSnapshot(q, (snapshot) => {
-                const attendeesData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                store.set({ data: attendeesData, loading: false, error: null, initialized: true });
-                retryCount = 0;
-                console.log(`Firestore snapshot: Successfully loaded/updated ${attendeesData.length} attendees.`);
-            }, (err) => {
-                console.error("Error in Firestore real-time listener:", err);
-                if (retryCount < MAX_RETRIES) {
-                    retryCount++;
-                    console.log(`Retrying connection (${retryCount}/${MAX_RETRIES}) in ${RETRY_DELAY_MS * retryCount / 1000}s...`);
-                    setTimeout(() => initializeStore(true), RETRY_DELAY_MS * retryCount); // Exponential backoff
-                } else {
-                    console.error("Real-time connection failed after retries. Falling back to one-time fetch.");
-                    store.update(s => ({ ...s, error: `Real-time updates failed: ${err.message}. Attempting one-time load.`}));
-                    fallbackFetch(); // Fallback if listener repeatedly fails
-                }
-            });
-        } catch (err) {
-            console.error("Failed to set up Firestore real-time listener:", err);
-            store.update(s => ({ ...s, loading: false, error: `Listener setup failed: ${err.message}. Attempting one-time load.`, initialized: true }));
-            fallbackFetch(); // Attempt fallback if listener setup itself fails
+        const q = query(attendeesCollection, orderBy('name'));
+        
+        if (unsubscribeSnapshotListener) {
+            unsubscribeSnapshotListener(); // Unsubscribe from previous listener if any
         }
-    }
-    
-    async function fallbackFetch() {
-        store.update(s => ({ ...s, loading: true })); // Keep existing error message if any, or set new one.
-        try {
-            const q = query(attendeesCollection, orderBy('name'));
-            const snapshot = await getDocs(q);
+        
+        unsubscribeSnapshotListener = onSnapshot(q, (snapshot) => {
             const attendeesData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            store.update(s => ({ ...s, data: attendeesData, loading: false, error: s.error, initialized: true })); // Keep original error if fallback was due to listener error
-            console.log(`Fallback fetch successful: loaded ${attendeesData.length} attendees.`);
-        } catch (err) {
-            console.error("Fallback fetch also failed:", err);
-            store.set({ data: [], loading: false, error: `Data loading failed completely: ${err.message}`, initialized: true });
-        }
+            store.set({ data: attendeesData, loading: false, error: null, initialized: true });
+            console.log(`Firestore snapshot: Successfully loaded/updated ${attendeesData.length} attendees (from cache or server).`);
+        }, (err) => {
+            console.error("Error in Firestore real-time listener:", err);
+            // Firebase SDK will attempt to reconnect and resync automatically.
+            // We just update the store's error state for UI feedback.
+            store.update(s => ({ ...s, loading: false, error: `Error loading attendees: ${err.message}`, initialized: true }));
+        });
     }
     
     initializeStore(); // Initialize on store creation
 
-    function validateAttendeeData(data, isUpdate = false) {
+    // --- Validation Function (remains the same) ---
+    function validateAttendeeData(data, _isUpdate = false) { // isUpdate not really used here now
         if (!data.name || typeof data.name !== 'string' || data.name.trim() === '') {
             throw new Error("Attendee name is required and cannot be empty.");
         }
         
+        const isNewValue = data['Are you new?']; // Handle potential string 'Are you new?' key
+        const hasMentorValue = data['Do you have a mentor?'];
+
         const validated = {
             name: data.name.trim(),
             phone: data.phone ? String(data.phone).trim() : '',
             location: data.location ? String(data.location).trim() : '',
             ageGroup: data.ageGroup ? String(data.ageGroup).trim() : '',
             isNew: typeof data.isNew === 'boolean' ? data.isNew : (
-                String(data['Are you new?']).toLowerCase() === 'yes' || String(data['Are you new?']).toLowerCase() === 'true'
+                typeof isNewValue !== 'undefined' ? (String(isNewValue).toLowerCase() === 'yes' || String(isNewValue).toLowerCase() === 'true') : false
             ),
             hasMentor: typeof data.hasMentor === 'boolean' ? data.hasMentor : (
-                String(data['Do you have a mentor?']).toLowerCase() === 'yes' || String(data['Do you have a mentor?']).toLowerCase() === 'true'
+                typeof hasMentorValue !== 'undefined' ? (String(hasMentorValue).toLowerCase() === 'yes' || String(hasMentorValue).toLowerCase() === 'true') : false
             ),
             present: typeof data.present === 'boolean' ? data.present : false,
             lastUpdated: Timestamp.now()
         };
-
-        if (isUpdate) {
-            // For updates, we don't want to overwrite existing fields with empty values if they are not provided in `data`
-            // This logic might need to be more granular depending on how `updatedData` is structured for `updateAttendee`
-            // For now, this simple validation assumes all relevant fields are passed or are fine to be overwritten.
-        } else {
-            // For new attendees, ensure `present` defaults to false if not specified
-            if (typeof data.present === 'undefined') {
-                validated.present = false;
-            }
+        
+        // For new attendees, ensure `present` defaults to false if not specified explicitly
+        if (typeof data.present === 'undefined' && !_isUpdate) {
+            validated.present = false;
         }
         return validated;
     }
 
+    // --- CRUD Operations (remain largely the same, Firebase handles offline queueing) ---
     async function addAttendee(attendeeData) {
         try {
             const validatedData = validateAttendeeData(attendeeData);
@@ -114,8 +80,8 @@ function createAttendeesStore() {
             // Store automatically updates via onSnapshot listener
             return { success: true, id: docRef.id };
         } catch (error) {
-            console.error("Error adding attendee to store:", error);
-            throw error; // Re-throw for component to handle
+            console.error("Error adding attendee:", error);
+            throw error; 
         }
     }
 
@@ -123,18 +89,14 @@ function createAttendeesStore() {
         try {
             if (!id) throw new Error("Invalid attendee ID for update.");
             
-            // Prepare data for update, ensuring we don't blank out fields unintentionally
-            // Only include fields that are actually being changed or are part of the core model.
-            // `validateAttendeeData` helps standardize and add `lastUpdated`.
-            const dataToUpdate = validateAttendeeData({ ...updatedData }, true); // Pass true for isUpdate if special logic is needed
-            delete dataToUpdate.id; // Don't try to write the ID field itself
+            const dataToUpdate = validateAttendeeData({ ...updatedData }, true); 
+            // delete dataToUpdate.id; // Not strictly necessary if not in validatedData, but good practice
 
             const attendeeRef = doc(db, 'attendees', id);
             await updateDoc(attendeeRef, dataToUpdate);
-            // Store automatically updates via onSnapshot listener
             return { success: true };
         } catch (error) {
-            console.error("Error updating attendee in store:", error);
+            console.error("Error updating attendee:", error);
             throw error;
         }
     }
@@ -144,10 +106,9 @@ function createAttendeesStore() {
             if (!id) throw new Error("Invalid attendee ID for deletion.");
             const attendeeRef = doc(db, 'attendees', id);
             await deleteDoc(attendeeRef);
-            // Store automatically updates via onSnapshot listener
             return { success: true };
         } catch (error) {
-            console.error("Error deleting attendee from store:", error);
+            console.error("Error deleting attendee:", error);
             throw error;
         }
     }
@@ -160,14 +121,14 @@ function createAttendeesStore() {
                 present: !currentStatus,
                 lastUpdated: Timestamp.now()
             });
-            // Store automatically updates via onSnapshot listener
             return { success: true, newStatus: !currentStatus };
         } catch (error) {
-            console.error("Error toggling attendance in store:", error);
+            console.error("Error toggling attendance:", error);
             throw error;
         }
     }
 
+    // --- Import from Excel (remains largely the same) ---
     async function importFromExcel(data, replaceAll = false, progressCallback = null) {
         if (!Array.isArray(data) || data.length === 0) {
             return { success: false, message: "No valid data found in Excel file." };
@@ -182,12 +143,13 @@ function createAttendeesStore() {
         try {
             if (replaceAll) {
                 notifyProgress('deleting', 'Preparing to delete existing data...', 0, 1);
-                const snapshot = await getDocs(query(attendeesCollection));
+                // Fetch all documents to delete. This still needs getDocs.
+                const snapshot = await getDocs(query(attendeesCollection)); 
                 const totalDocsToDelete = snapshot.docs.length;
                 let deletedCount = 0;
 
                 if (totalDocsToDelete > 0) {
-                    const MAX_BATCH_DELETE_SIZE = 500; // Firestore batch limit
+                    const MAX_BATCH_SIZE = 500; 
                     let batch = writeBatch(db);
                     let currentBatchSize = 0;
 
@@ -195,10 +157,10 @@ function createAttendeesStore() {
                         batch.delete(snapshot.docs[i].ref);
                         currentBatchSize++;
                         deletedCount++;
-                        if (currentBatchSize === MAX_BATCH_DELETE_SIZE || i === snapshot.docs.length - 1) {
-                            await batch.commit();
+                        if (currentBatchSize === MAX_BATCH_SIZE || i === snapshot.docs.length - 1) {
+                            await batch.commit(); // These commits will be queued offline if needed
                             notifyProgress('deleting', `Deleting existing data... (${deletedCount}/${totalDocsToDelete})`, deletedCount, totalDocsToDelete);
-                            if (i < snapshot.docs.length - 1) { // Don't create new batch if it's the last one
+                            if (i < snapshot.docs.length - 1) {
                                 batch = writeBatch(db);
                                 currentBatchSize = 0;
                             }
@@ -213,7 +175,7 @@ function createAttendeesStore() {
             let errorCount = 0;
             const errors = [];
 
-            const MAX_BATCH_IMPORT_SIZE = 500;
+            const MAX_BATCH_SIZE = 500;
             let importBatch = writeBatch(db);
             let currentImportBatchSize = 0;
 
@@ -231,18 +193,18 @@ function createAttendeesStore() {
                         phone: item['Phone'],
                         location: item['Location'],
                         ageGroup: item['Age Group'],
-                        'Are you new?': item['Are you new?'], // Let validator handle conversion
-                        'Do you have a mentor?': item['Do you have a mentor?'], // Let validator handle conversion
-                        present: false, // Default to not present for imported records
+                        'Are you new?': item['Are you new?'],
+                        'Do you have a mentor?': item['Do you have a mentor?'],
+                        present: false, 
                     });
                     
-                    const newDocRef = doc(attendeesCollection); // Auto-generate ID
+                    const newDocRef = doc(attendeesCollection); 
                     importBatch.set(newDocRef, validatedData);
                     currentImportBatchSize++;
                     successCount++;
                     
-                    if (currentImportBatchSize === MAX_BATCH_IMPORT_SIZE || i === data.length - 1) {
-                        await importBatch.commit();
+                    if (currentImportBatchSize === MAX_BATCH_SIZE || i === data.length - 1) {
+                        await importBatch.commit(); // These commits will be queued offline
                         notifyProgress('importing', `Importing data... (${successCount}/${data.length})`, successCount, data.length);
                         if (i < data.length - 1) {
                             importBatch = writeBatch(db);
@@ -259,7 +221,7 @@ function createAttendeesStore() {
             let message = `Import completed: ${successCount} records imported successfully.`;
             if (errorCount > 0) {
                 message += ` ${errorCount} records failed or were skipped.`;
-                if (errors.length > 0) console.warn("Import errors:", errors.slice(0,10).join("\n") + (errors.length > 10 ? "\n...and more." : "")); // Log first few errors
+                 if (errors.length > 0) console.warn("Import errors:", errors.slice(0,10).join("\n") + (errors.length > 10 ? "\n...and more." : ""));
             }
             return { success: true, message, errors };
 
@@ -271,21 +233,24 @@ function createAttendeesStore() {
     }
 
     async function refreshData() {
+        // This function might not be strictly necessary if the listener is robust.
+        // However, it can be used to manually re-trigger the listener setup if needed,
+        // or to clear a persistent error state in the UI.
         console.log("Manual data refresh triggered.");
-        retryCount = 0; // Reset retries for a manual refresh
-        store.update(s => ({ ...s, error: null })); // Clear previous errors before attempting refresh
-        await initializeStore(); // This will set loading to true
+        // The listener will automatically try to get data. 
+        // If there was an error, this ensures `loading` is true again and `error` is cleared.
+        initializeStore(); 
     }
 
     return {
         subscribe: store.subscribe,
         addAttendee,
         updateAttendee,
-        deleteAttendee, // Expose deleteAttendee
+        deleteAttendee,
         togglePresent,
         importFromExcel,
         refreshData,
-        destroy: () => { // Cleanup listener on component unmount if store is component-specific
+        destroy: () => { 
             if (unsubscribeSnapshotListener) {
                 unsubscribeSnapshotListener();
                 unsubscribeSnapshotListener = null;
