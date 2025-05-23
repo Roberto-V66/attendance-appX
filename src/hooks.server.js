@@ -21,3 +21,12 @@ export async function handle({ event, resolve }) {
     const response = await resolve(event);
     return response;
 }
+
+export const handle = async ({ event, resolve }) => {
+  // Block direct access to +server.js files
+  if (event.url.pathname.endsWith('+server.js')) {
+    return new Response('Not found', { status: 404 });
+  }
+
+  return await resolve(event);
+};
