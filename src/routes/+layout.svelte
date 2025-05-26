@@ -1,4 +1,3 @@
-<!-- src/routes/+layout.svelte -->
 <script>
     import "../app.css";
     import { isAuthenticated } from "$lib/stores/authStore.js";
@@ -8,9 +7,10 @@
 
     // For optional offline UI banner
     let online = true;
-    
+
     // Keep the reactive statement for auth state
     $: isAuthenticated.set($page.data.isAuthenticated);
+
 
     onMount(() => {
         // Online/offline status for UI

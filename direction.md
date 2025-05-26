@@ -1,4 +1,0 @@
-- Present logic: a presnt column should create so that when clicked, it is marked
-- Firebase problem 1150 to 0 to 1150, is it network ?
-- Enhance UI/UX
-- Start thnkiong about github documentation and hosting
