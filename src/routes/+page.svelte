@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    ArrowUpRight,
     Search,
     BookType,
     LogOut,
@@ -13,9 +12,6 @@
     Check,
     AlertTriangle,
     Trash2,
-    Users,
-    CheckCircle,
-    Sparkles,
     BarChart2,
   } from "lucide-svelte";
 
@@ -26,10 +22,9 @@
   import { Label } from "$lib/components/ui/label/index.js";
   import { Checkbox } from "$lib/components/ui/checkbox/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
-  import { Skeleton } from "$lib/components/ui/skeleton/index.js";
   import { attendees as attendeesStore } from "$lib/stores/attendeeStore.js";
   import * as XLSX from "xlsx";
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte"; // Added onDestroy
 
   // Modal state
   let isAddModalOpen = false;
@@ -73,16 +68,37 @@
     storeInitialized = value.initialized;
   });
 
-  // Search
-  let search = "";
+  // --- DEBOUNCED SEARCH ---
+  let search = ""; // Bound to the input field
+  let debouncedSearchTerm = ""; // Used for actual filtering after delay
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const DEBOUNCE_DELAY = 300; // milliseconds
+
+  // Reactive statement to update debouncedSearchTerm after user stops typing
+  $: {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      debouncedSearchTerm = search.trim();
+    }, DEBOUNCE_DELAY);
+  }
+
+  // Filtered people based on the debounced search term
   $: filteredPeople =
-    search.trim().length > 0 && !isLoadingAttendees && storeInitialized
-      ? people.filter(
-          (p) =>
-            (p.name && p.name.toLowerCase().includes(search.toLowerCase())) ||
-            (p.phone && p.phone.toLowerCase().includes(search.toLowerCase())),
-        )
+    debouncedSearchTerm.length > 0 && !isLoadingAttendees && storeInitialized
+      ? people.filter((p) => {
+          const lowerSearch = debouncedSearchTerm.toLowerCase();
+          return (
+            (p.name && p.name.toLowerCase().includes(lowerSearch)) ||
+            (p.phone && p.phone.toLowerCase().includes(lowerSearch))
+          );
+        })
       : [];
+
+  // Cleanup timer on component destroy
+  onDestroy(() => {
+    clearTimeout(searchDebounceTimer);
+  });
+  // --- END DEBOUNCED SEARCH ---
 
   function showStatus(type: "success" | "error" | "info", text: string) {
     statusMessage = { type, text };
@@ -147,34 +163,37 @@
     formErrors = {};
   }
 
- async function handleAddPerson() {
-  formErrors = {};
-  if (!newPerson.name.trim()) {
-    formErrors.name = "Name is required.";
-    return;
-  }
-  
-  const personDataToAdd = { ...newPerson }; // Capture the data before clearing
-  closeModal(); // Close modal immediately
-  showStatus("info", `Adding ${personDataToAdd.name}...`); // Optional: give some "in progress" feedback
-
-  try {
-    const result = await attendeesStore.addAttendee(personDataToAdd);
-    
-    if (result.success) {
-      showStatus("success", `${personDataToAdd.name} added successfully!`);
-    } else {
-      showStatus("error", "Failed to add attendee. It might be synced later if offline.");
+  async function handleAddPerson() {
+    formErrors = {};
+    if (!newPerson.name.trim()) {
+      formErrors.name = "Name is required.";
+      return;
     }
 
-  } catch (e: any) {
-    console.error("Error adding person:", e);
-    showStatus(
-      "error",
-      e.message || "Failed to add person. It will be retried if you are offline.",
-    );
+    const personDataToAdd = { ...newPerson };
+    closeModal();
+    showStatus("info", `Adding ${personDataToAdd.name}...`);
+
+    try {
+      const result = await attendeesStore.addAttendee(personDataToAdd);
+
+      if (result.success) {
+        showStatus("success", `${personDataToAdd.name} added successfully!`);
+      } else {
+        showStatus(
+          "error",
+          "Failed to add attendee. It might be synced later if offline.",
+        );
+      }
+    } catch (e: any) {
+      console.error("Error adding person:", e);
+      showStatus(
+        "error",
+        e.message ||
+          "Failed to add person. It will be retried if you are offline.",
+      );
+    }
   }
-}
 
   async function handleEditPerson() {
     formErrors = {};
@@ -203,7 +222,7 @@
     try {
       const form = document.createElement("form");
       form.method = "POST";
-      form.action = "/export";
+      form.action = "/export"; // Ensure this endpoint is set up on your server
       document.body.appendChild(form);
       form.submit();
       document.body.removeChild(form);
@@ -363,8 +382,8 @@
   >
     <div class="flex items-center gap-2">
       <a href="/">
-        <BookType/> </a
-      >
+        <BookType />
+      </a>
     </div>
     <div class="flex-1 max-w-xl">
       <form class="w-full" on:submit|preventDefault>
@@ -429,13 +448,38 @@
         </Card.Header>
 
         <Card.Content class="min-h-[200px]">
-          {#if isLoadingAttendees && !storeInitialized && search.trim().length > 0}
+          {#if isLoadingAttendees && !storeInitialized}
+            <!-- State 1: Initial data load for the entire list, store not ready -->
             <div class="text-center py-8">
               <Loader2 class="h-6 w-6 animate-spin mx-auto text-primary" />
               <p class="mt-2 text-muted-foreground">Loading attendees...</p>
             </div>
-          {:else if search.trim().length > 0}
+          {:else if attendeesError}
+            <!-- State 2: Error loading attendees -->
+            <div class="text-center py-8 text-red-600">
+              <AlertCircle class="h-6 w-6 mx-auto mb-2" />
+              <p>Error: {attendeesError}</p>
+              <p class="text-sm text-muted-foreground">
+                Could not load attendee data. Please try refreshing the page or
+                check your connection.
+              </p>
+            </div>
+          {:else if !storeInitialized}
+            <!-- State 3: Store is still not initialized (should be brief) -->
+            <div class="text-center py-8 text-muted-foreground">
+              Initializing data...
+            </div>
+          {:else if search.trim().length === 0}
+            <!-- State 4: Store initialized, no search term entered -->
+            <div
+              class="mb-4 text-center text-sm sm:text-base text-muted-foreground"
+            >
+              Search by name or phone to display attendee cards.
+            </div>
+          {:else if debouncedSearchTerm.length > 0}
+            <!-- State 5: Store initialized, debounced search term is active -->
             {#if filteredPeople.length > 0}
+              <!-- Sub-state 5a: Results found -->
               <div
                 class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
               >
@@ -462,7 +506,9 @@
                       <p class="truncate">Location: {person.location || "-"}</p>
                       <p class="truncate">Age: {person.ageGroup || "-"}</p>
                     </Card.Content>
-                    <Card.Footer class="flex justify-between pt-4 items-center">
+                    <Card.Footer
+                      class="flex justify-between pt-4 items-center"
+                    >
                       <Button
                         size="sm"
                         variant={person.present ? "outline" : "default"}
@@ -495,13 +541,24 @@
                 {/each}
               </div>
             {:else}
+              <!-- Sub-state 5b: No results found for debounced term -->
               <div class="text-center py-8 text-muted-foreground">
-                No attendees found for "{search}". Try a different search.
+                No attendees found for "{debouncedSearchTerm}". Try a different
+                search.
               </div>
             {/if}
+          {:else if search.trim().length > 0 && debouncedSearchTerm.length === 0}
+            <!-- State 6: Store initialized, user is typing, debounce not elapsed -->
+            <div class="text-center py-8 text-muted-foreground">
+              <Loader2 class="h-5 w-5 animate-spin inline-block mr-2" />
+              Searching...
+            </div>
           {:else}
-            <div class="mb-4 text-center text-sm sm:text-base text-muted-foreground">
-              Search by name or phone to display attendee cards.
+            <!-- Fallback: Should ideally not be hit if logic above is correct -->
+            <div
+              class="mb-4 text-center text-sm sm:text-base text-muted-foreground"
+            >
+              Use the search bar to find attendees.
             </div>
           {/if}
         </Card.Content>
@@ -777,6 +834,7 @@
       </div>
     </div>
   {/if}
+
   <!-- Delete Confirmation Dialog -->
   <AlertDialog.Root bind:open={showDeleteDialog}>
     <AlertDialog.Portal>
