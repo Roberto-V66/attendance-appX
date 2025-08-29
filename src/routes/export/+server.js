@@ -1,20 +1,22 @@
 // src/routes/export/+server.js
 
 import { createClient } from '@supabase/supabase-js';
-import { env } from '$env/dynamic/private'; // 
-import { SUPABASE_SERVICE_ROLE_KEY } from '$env/static/private';
+import { env } from '$env/dynamic/private'; // <-- We will ONLY use this for env variables
 import * as XLSX from 'xlsx';
 
-// The private env object contains PUBLIC variables as well when on the server.
-const supabaseAdmin = createClient(env.VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+// --- MODIFIED THIS LINE ---
+// We get BOTH variables from the single 'env' object. This is more reliable.
+const supabaseAdmin = createClient(env.VITE_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
 export async function POST({ cookies }) {
+    // We still check for the session cookie as a basic authorization check
     const sessionToken = cookies.get('session_token');
     if (!sessionToken) {
         return new Response("Unauthorized", { status: 401 });
     }
 
     try {
+        // Fetch ALL attendees from Supabase using the admin client
         const { data, error } = await supabaseAdmin
             .from('attendees')
             .select('*')
@@ -26,6 +28,7 @@ export async function POST({ cookies }) {
             return new Response("No data to export", { status: 404 });
         }
 
+        // Map the Supabase data to a user-friendly Excel format
         const attendeesForExport = data.map(attendee => ({
             'Name': attendee.Name || '',
             'Phone': attendee.Phone || '',
@@ -37,9 +40,11 @@ export async function POST({ cookies }) {
         }));
 
         const worksheet = XLSX.utils.json_to_sheet(attendeesForExport);
+        
+        // Set column widths for a nice-looking export
         worksheet['!cols'] = [
             { wch: 25 }, { wch: 15 }, { wch: 20 }, { wch: 12 },
-            { wch: 10 }, { wch: 12 }, { wch: 12 }
+            { wch: 10 }, { wch: 12 }, { wch: 12 } 
         ];
 
         const workbook = XLSX.utils.book_new();
@@ -51,7 +56,7 @@ export async function POST({ cookies }) {
             status: 200,
             headers: {
                 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'Content-Disposition': `attachment; filename="attendees_export_${new Date().toISOString().slice(0, 10)}.xlsx"`
+                'Content-Disposition': `attachment; filename="attendees_export_${new Date().toISOString().slice(0,10)}.xlsx"`
             }
         });
 
