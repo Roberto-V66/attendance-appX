@@ -1,261 +1,147 @@
 // src/lib/stores/attendeeStore.js
-import { writable } from 'svelte/store';
-import { db } from  '$lib/firebase/firebase.js'; // Adjusted path based on common structure
-import {
-    collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc,
-    Timestamp, query, orderBy, writeBatch, getDocs // getDocs still needed for replaceAll in import
-} from 'firebase/firestore';
 
-const attendeesCollection = collection(db, 'attendees');
+import { writable } from 'svelte/store';
+import { supabase } from '$lib/supabase/supabase.js';
 
 function createAttendeesStore() {
     const store = writable({
         data: [],
-        loading: true, // Start in loading state
+        loading: true,
         error: null,
-        initialized: false // Tracks if the first data load attempt has completed
+        initialized: false
     });
 
-    let unsubscribeSnapshotListener = null;
+    let channel = null;
 
-    function initializeStore() {
+    async function fetchAttendees() {
         store.update(s => ({ ...s, loading: true, error: null }));
+        
+        // FIX 1: INCREASE THE ROW LIMIT
+        const { data: attendeesData, error } = await supabase
+            .from('attendees')
+            .select('*') // This automatically includes your new 'id' column
+            .order('Name', { ascending: true })
+            .limit(2000); 
 
-        const q = query(attendeesCollection, orderBy('name'));
-        
-        if (unsubscribeSnapshotListener) {
-            unsubscribeSnapshotListener(); // Unsubscribe from previous listener if any
+        if (error) {
+            console.error("Error fetching attendees:", error);
+            store.update(s => ({ ...s, loading: false, error: `Error loading attendees: ${error.message}`, initialized: true }));
+        } else {
+            // FIX 2: THIS MAPPING IS CRITICAL FOR SEARCH AND DISPLAY.
+            // It translates database columns (e.g., item.Name) to component properties (e.g., name).
+            const mappedData = attendeesData.map(item => ({
+                id: item.id,
+                name: item.Name,
+                phone: item.Phone,
+                location: item.Location,
+                ageGroup: item.AgeGroup,
+                isNew: item.New,
+                hasMentor: item.Mentor,
+                present: item.present,
+            }));
+
+            store.set({ data: mappedData, loading: false, error: null, initialized: true });
+            console.log(`Supabase: Successfully loaded ${mappedData.length} attendees.`);
         }
-        
-        unsubscribeSnapshotListener = onSnapshot(q, (snapshot) => {
-            const attendeesData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            store.set({ data: attendeesData, loading: false, error: null, initialized: true });
-            console.log(`Firestore snapshot: Successfully loaded/updated ${attendeesData.length} attendees (from cache or server).`);
-        }, (err) => {
-            console.error("Error in Firestore real-time listener:", err);
-            // Firebase SDK will attempt to reconnect and resync automatically.
-            // We just update the store's error state for UI feedback.
-            store.update(s => ({ ...s, loading: false, error: `Error loading attendees: ${err.message}`, initialized: true }));
-        });
     }
     
-    initializeStore(); // Initialize on store creation
-
-    // --- Validation Function (remains the same) ---
-    function validateAttendeeData(data, _isUpdate = false) { // isUpdate not really used here now
-        if (!data.name || typeof data.name !== 'string' || data.name.trim() === '') {
-            throw new Error("Attendee name is required and cannot be empty.");
-        }
-        
-        const isNewValue = data['Are you new?']; // Handle potential string 'Are you new?' key
-        const hasMentorValue = data['Do you have a mentor?'];
-
-        const validated = {
-            name: data.name.trim(),
-            phone: data.phone ? String(data.phone).trim() : '',
-            location: data.location ? String(data.location).trim() : '',
-            ageGroup: data.ageGroup ? String(data.ageGroup).trim() : '',
-            isNew: typeof data.isNew === 'boolean' ? data.isNew : (
-                typeof isNewValue !== 'undefined' ? (String(isNewValue).toLowerCase() === 'yes' || String(isNewValue).toLowerCase() === 'true') : false
-            ),
-            hasMentor: typeof data.hasMentor === 'boolean' ? data.hasMentor : (
-                typeof hasMentorValue !== 'undefined' ? (String(hasMentorValue).toLowerCase() === 'yes' || String(hasMentorValue).toLowerCase() === 'true') : false
-            ),
-            present: typeof data.present === 'boolean' ? data.present : false,
-            lastUpdated: Timestamp.now()
-        };
-        
-        // For new attendees, ensure `present` defaults to false if not specified explicitly
-        if (typeof data.present === 'undefined' && !_isUpdate) {
-            validated.present = false;
-        }
-        return validated;
+    function initializeRealtimeListener() {
+        if (channel) return;
+        channel = supabase.channel('public:attendees')
+            .on(
+                'postgres_changes', 
+                { event: '*', schema: 'public', table: 'attendees' }, 
+                () => fetchAttendees() // Refetch data on any change
+            )
+            .subscribe();
     }
+    
+    // Initial data load and real-time setup
+    fetchAttendees();
+    initializeRealtimeListener();
 
-    // --- CRUD Operations (remain largely the same, Firebase handles offline queueing) ---
+    // This function takes app data (lowercase) and prepares it for the database (uppercase).
+    function validateAndPrepareDataForSupabase(data) {
+        if (!data.name?.trim()) throw new Error("Attendee name is required.");
+        return {
+            Name: data.name.trim(),
+            Phone: data.phone ? String(data.phone).trim() : null,
+            Location: data.location ? String(data.location).trim() : null,
+            AgeGroup: data.ageGroup ? String(data.ageGroup).trim() : null,
+            New: typeof data.isNew === 'boolean' ? data.isNew : false,
+            Mentor: typeof data.hasMentor === 'boolean' ? data.hasMentor : false,
+            present: typeof data.present === 'boolean' ? data.present : false,
+        };
+    }
+    
+    // --- CRUD OPERATIONS USING THE UNIQUE 'id' ---
     async function addAttendee(attendeeData) {
-        try {
-            const validatedData = validateAttendeeData(attendeeData);
-            const docRef = await addDoc(attendeesCollection, validatedData);
-            // Store automatically updates via onSnapshot listener
-            return { success: true, id: docRef.id };
-        } catch (error) {
-            console.error("Error adding attendee:", error);
-            throw error; 
-        }
+        const dataForSupabase = validateAndPrepareDataForSupabase(attendeeData);
+        const { error } = await supabase.from('attendees').insert([dataForSupabase]);
+        if (error) throw error;
+        return { success: true };
     }
 
     async function updateAttendee(id, updatedData) {
-        try {
-            if (!id) throw new Error("Invalid attendee ID for update.");
-            
-            const dataToUpdate = validateAttendeeData({ ...updatedData }, true); 
-            // delete dataToUpdate.id; // Not strictly necessary if not in validatedData, but good practice
-
-            const attendeeRef = doc(db, 'attendees', id);
-            await updateDoc(attendeeRef, dataToUpdate);
-            return { success: true };
-        } catch (error) {
-            console.error("Error updating attendee:", error);
-            throw error;
-        }
+        if (!id) throw new Error("Invalid ID for update.");
+        const dataToUpdate = validateAndPrepareDataForSupabase({ ...updatedData });
+        const { error } = await supabase.from('attendees').update(dataToUpdate).eq('id', id);
+        if (error) throw error;
+        return { success: true };
     }
 
     async function deleteAttendee(id) {
-        try {
-            if (!id) throw new Error("Invalid attendee ID for deletion.");
-            const attendeeRef = doc(db, 'attendees', id);
-            await deleteDoc(attendeeRef);
-            return { success: true };
-        } catch (error) {
-            console.error("Error deleting attendee:", error);
-            throw error;
-        }
+        if (!id) throw new Error("Invalid ID for deletion.");
+        const { error } = await supabase.from('attendees').delete().eq('id', id);
+        if (error) throw error;
+        return { success: true };
     }
 
     async function togglePresent(id, currentStatus) {
-        try {
-            if (!id) throw new Error("Invalid attendee ID for toggle.");
-            const attendeeRef = doc(db, 'attendees', id);
-            await updateDoc(attendeeRef, {
-                present: !currentStatus,
-                lastUpdated: Timestamp.now()
-            });
-            return { success: true, newStatus: !currentStatus };
-        } catch (error) {
-            console.error("Error toggling attendance:", error);
-            throw error;
-        }
+        if (!id) throw new Error("Invalid ID for toggle.");
+        const { error } = await supabase.from('attendees').update({ present: !currentStatus }).eq('id', id);
+        if (error) throw error;
+        return { success: true, newStatus: !currentStatus };
     }
 
-    // --- Import from Excel (remains largely the same) ---
     async function importFromExcel(data, replaceAll = false, progressCallback = null) {
         if (!Array.isArray(data) || data.length === 0) {
-            return { success: false, message: "No valid data found in Excel file." };
+            return { success: false, message: "No valid data." };
         }
-
-        const notifyProgress = (phase, message, current, total) => {
-            if (progressCallback) {
-                progressCallback({ phase, message, progress: total > 0 ? current / total : 0 });
-            }
-        };
-
+        const notify = (phase, msg, progress) => progressCallback?.({ phase, msg, progress });
         try {
             if (replaceAll) {
-                notifyProgress('deleting', 'Preparing to delete existing data...', 0, 1);
-                // Fetch all documents to delete. This still needs getDocs.
-                const snapshot = await getDocs(query(attendeesCollection)); 
-                const totalDocsToDelete = snapshot.docs.length;
-                let deletedCount = 0;
-
-                if (totalDocsToDelete > 0) {
-                    const MAX_BATCH_SIZE = 500; 
-                    let batch = writeBatch(db);
-                    let currentBatchSize = 0;
-
-                    for (let i = 0; i < snapshot.docs.length; i++) {
-                        batch.delete(snapshot.docs[i].ref);
-                        currentBatchSize++;
-                        deletedCount++;
-                        if (currentBatchSize === MAX_BATCH_SIZE || i === snapshot.docs.length - 1) {
-                            await batch.commit(); // These commits will be queued offline if needed
-                            notifyProgress('deleting', `Deleting existing data... (${deletedCount}/${totalDocsToDelete})`, deletedCount, totalDocsToDelete);
-                            if (i < snapshot.docs.length - 1) {
-                                batch = writeBatch(db);
-                                currentBatchSize = 0;
-                            }
-                        }
-                    }
-                }
-                notifyProgress('deleting', 'All existing data deleted.', 1, 1);
+                notify('deleting', 'Deleting existing data...', 0.5);
+                const { error: deleteError } = await supabase.from('attendees').delete().neq('id', -1);
+                if (deleteError) throw deleteError;
             }
-            
-            notifyProgress('importing', 'Starting import process...', 0, data.length);
-            let successCount = 0;
-            let errorCount = 0;
-            const errors = [];
-
-            const MAX_BATCH_SIZE = 500;
-            let importBatch = writeBatch(db);
-            let currentImportBatchSize = 0;
-
-            for (let i = 0; i < data.length; i++) {
-                const item = data[i];
-                if (!item || !item.Name || String(item.Name).trim() === '') {
-                    errorCount++;
-                    errors.push(`Row ${i+2}: Skipped due to missing Name.`);
-                    continue;
-                }
-                
-                try {
-                    const validatedData = validateAttendeeData({
-                        name: item['Name'],
-                        phone: item['Phone'],
-                        location: item['Location'],
-                        ageGroup: item['Age Group'],
-                        'Are you new?': item['Are you new?'],
-                        'Do you have a mentor?': item['Do you have a mentor?'],
-                        present: false, 
-                    });
-                    
-                    const newDocRef = doc(attendeesCollection); 
-                    importBatch.set(newDocRef, validatedData);
-                    currentImportBatchSize++;
-                    successCount++;
-                    
-                    if (currentImportBatchSize === MAX_BATCH_SIZE || i === data.length - 1) {
-                        await importBatch.commit(); // These commits will be queued offline
-                        notifyProgress('importing', `Importing data... (${successCount}/${data.length})`, successCount, data.length);
-                        if (i < data.length - 1) {
-                            importBatch = writeBatch(db);
-                            currentImportBatchSize = 0;
-                        }
-                    }
-                } catch (validationError) {
-                    console.error(`Validation error for row ${i+2}:`, validationError, item);
-                    errorCount++;
-                    errors.push(`Row ${i+2} (${item.Name || 'N/A'}): ${validationError.message}`);
-                }
-            }
-            
-            let message = `Import completed: ${successCount} records imported successfully.`;
-            if (errorCount > 0) {
-                message += ` ${errorCount} records failed or were skipped.`;
-                 if (errors.length > 0) console.warn("Import errors:", errors.slice(0,10).join("\n") + (errors.length > 10 ? "\n...and more." : ""));
-            }
-            return { success: true, message, errors };
-
+            const attendeesToInsert = data.map(item => validateAndPrepareDataForSupabase({
+                name: item['Name'],
+                phone: item['Phone'],
+                location: item['Location'],
+                ageGroup: item['Age Group'],
+                isNew: item['Are you new?'],
+                hasMentor: item['Do you have a mentor?'],
+                present: false,
+            }));
+            const { error: insertError } = await supabase.from('attendees').insert(attendeesToInsert);
+            if (insertError) throw insertError;
+            return { success: true, message: `Import completed: ${attendeesToInsert.length} records imported.` };
         } catch (error) {
-            console.error("Error during Excel import process:", error);
-            notifyProgress('error', `Import failed: ${error.message}`, 1, 1);
-            return { success: false, message: `Import failed: ${error.message || "Unknown error during import."}` };
+            return { success: false, message: `Import failed: ${error.message}` };
         }
-    }
-
-    async function refreshData() {
-        // This function might not be strictly necessary if the listener is robust.
-        // However, it can be used to manually re-trigger the listener setup if needed,
-        // or to clear a persistent error state in the UI.
-        console.log("Manual data refresh triggered.");
-        // The listener will automatically try to get data. 
-        // If there was an error, this ensures `loading` is true again and `error` is cleared.
-        initializeStore(); 
     }
 
     return {
         subscribe: store.subscribe,
-        addAttendee,
-        updateAttendee,
-        deleteAttendee,
-        togglePresent,
+        addAttendee, 
+        updateAttendee, 
+        deleteAttendee, 
+        togglePresent, 
         importFromExcel,
-        refreshData,
+        refreshData: fetchAttendees,
         destroy: () => { 
-            if (unsubscribeSnapshotListener) {
-                unsubscribeSnapshotListener();
-                unsubscribeSnapshotListener = null;
-                console.log("Attendee store snapshot listener destroyed.");
-            }
+            if (channel) supabase.removeChannel(channel); 
         }
     };
 }

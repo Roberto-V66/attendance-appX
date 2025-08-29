@@ -24,7 +24,7 @@
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { attendees as attendeesStore } from "$lib/stores/attendeeStore.js";
   import * as XLSX from "xlsx";
-  import { onMount, onDestroy } from "svelte"; // Added onDestroy
+  import { onMount, onDestroy } from "svelte";
 
   // Modal state
   let isAddModalOpen = false;
@@ -32,13 +32,15 @@
   let isImportModalOpen = false;
   let editingPerson: any = null;
 
-  // Status messages
+  // Status messages and loading states
   let statusMessage: {
     type: "success" | "error" | "info";
     text: string;
   } | null = null;
   let formErrors: Record<string, string> = {};
+  let isExporting = false; // <-- New state for export button
 
+  // Import-specific state
   let importLoading = false;
   let importFile: File | undefined;
   let confirmReplaceData = false;
@@ -69,12 +71,12 @@
   });
 
   // --- DEBOUNCED SEARCH ---
-  let search = ""; // Bound to the input field
-  let debouncedSearchTerm = ""; // Used for actual filtering after delay
-  let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined = undefined;
-  const DEBOUNCE_DELAY = 300; // milliseconds
+  let search = "";
+  let debouncedSearchTerm = "";
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined =
+    undefined;
+  const DEBOUNCE_DELAY = 300;
 
-  // Reactive statement to update debouncedSearchTerm after user stops typing
   $: {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(() => {
@@ -82,7 +84,6 @@
     }, DEBOUNCE_DELAY);
   }
 
-  // Filtered people based on the debounced search term
   $: filteredPeople =
     debouncedSearchTerm.length > 0 && !isLoadingAttendees && storeInitialized
       ? people.filter((p) => {
@@ -94,7 +95,6 @@
         })
       : [];
 
-  // Cleanup timer on component destroy
   onDestroy(() => {
     clearTimeout(searchDebounceTimer);
   });
@@ -119,10 +119,7 @@
       }
     } catch (error: any) {
       console.error("Error toggling presence:", error);
-      showStatus(
-        "error",
-        error.message || "Failed to update attendance. Please try again.",
-      );
+      showStatus("error", error.message || "Failed to update attendance.");
     }
   }
 
@@ -169,29 +166,15 @@
       formErrors.name = "Name is required.";
       return;
     }
-
     const personDataToAdd = { ...newPerson };
     closeModal();
     showStatus("info", `Adding ${personDataToAdd.name}...`);
-
     try {
-      const result = await attendeesStore.addAttendee(personDataToAdd);
-
-      if (result.success) {
-        showStatus("success", `${personDataToAdd.name} added successfully!`);
-      } else {
-        showStatus(
-          "error",
-          "Failed to add attendee. It might be synced later if offline.",
-        );
-      }
+      await attendeesStore.addAttendee(personDataToAdd);
+      showStatus("success", `${personDataToAdd.name} added successfully!`);
     } catch (e: any) {
       console.error("Error adding person:", e);
-      showStatus(
-        "error",
-        e.message ||
-          "Failed to add person. It will be retried if you are offline.",
-      );
+      showStatus("error", e.message || "Failed to add person.");
     }
   }
 
@@ -211,28 +194,54 @@
       closeModal();
     } catch (error: any) {
       console.error("Error updating person:", error);
-      showStatus(
-        "error",
-        error.message || "Failed to update person. Please try again.",
-      );
+      showStatus("error", error.message || "Failed to update person.");
     }
   }
 
+  // --- NEW EXPORT FUNCTION ---
   async function handleExport() {
+    isExporting = true;
+    showStatus("info", "Generating export file...");
+
     try {
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = "/export"; // Ensure this endpoint is set up on your server
-      document.body.appendChild(form);
-      form.submit();
-      document.body.removeChild(form);
-      showStatus(
-        "info",
-        "Export process initiated. Your download will begin shortly.",
-      );
-    } catch (error) {
+      const response = await fetch("/export", {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Failed to generate export file.");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+
+      const disposition = response.headers.get("content-disposition");
+      let filename = `attendees_export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      if (disposition && disposition.indexOf("attachment") !== -1) {
+        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+        const matches = filenameRegex.exec(disposition);
+        if (matches != null && matches[1]) {
+          filename = matches[1].replace(/['"]/g, "");
+        }
+      }
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      showStatus("success", "Export downloaded successfully!");
+    } catch (error: any) {
       console.error("Error exporting data:", error);
-      showStatus("error", "Failed to export data. Please try again.");
+      showStatus(
+        "error",
+        error.message || "Failed to export data. Please try again.",
+      );
+    } finally {
+      isExporting = false;
     }
   }
 
@@ -255,24 +264,6 @@
     };
     try {
       const data = await readExcelFile(importFile);
-      const requiredHeaders = [
-        "Name",
-        "Phone",
-        "Location",
-        "Age Group",
-        "Are you new?",
-        "Do you have a mentor?",
-      ];
-      const fileHeaders = Object.keys(data[0] || {});
-      const missingHeaders = requiredHeaders.filter(
-        (h) => !fileHeaders.includes(h),
-      );
-      if (missingHeaders.length > 0) {
-        throw new Error(
-          `Missing required headers: ${missingHeaders.join(", ")}`,
-        );
-      }
-
       const result = await attendeesStore.importFromExcel(
         data,
         true,
@@ -280,7 +271,6 @@
           importProgress = progress;
         },
       );
-
       if (result.success) {
         showStatus("success", result.message);
         closeModal();
@@ -291,9 +281,6 @@
       formErrors.import = err.message || "Failed to import file.";
     } finally {
       importLoading = false;
-      if (!isImportModalOpen) {
-        importProgress = { phase: "", message: "", progress: 0 };
-      }
     }
   }
 
@@ -307,17 +294,12 @@
             const workbook = XLSX.read(data, { type: "array" });
             const firstSheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[firstSheetName];
-            const jsonData = XLSX.utils.sheet_to_json(worksheet);
-            resolve(jsonData);
+            resolve(XLSX.utils.sheet_to_json(worksheet));
           } else {
-            reject(new Error("File could not be read as ArrayBuffer"));
+            reject(new Error("File could not be read"));
           }
         } catch (err) {
-          reject(
-            new Error(
-              "Failed to parse Excel file. Ensure it's a valid .xlsx file.",
-            ),
-          );
+          reject(new Error("Failed to parse Excel file."));
         }
       };
       reader.onerror = () => reject(new Error("Failed to read file"));
@@ -325,7 +307,6 @@
     });
   }
 
-  // Delete confirmation
   let showDeleteDialog = false;
   let attendeeToDelete: { id: string; name: string } | null = null;
 
@@ -333,14 +314,13 @@
     attendeeToDelete = attendee;
     showDeleteDialog = true;
   }
+
   async function handleDelete() {
     if (!attendeeToDelete) return;
-
     try {
       await attendeesStore.deleteAttendee(attendeeToDelete.id);
       showStatus("success", `${attendeeToDelete.name} has been deleted.`);
     } catch (error: any) {
-      console.error("Error deleting attendee:", error);
       showStatus("error", error.message || "Failed to delete attendee.");
     } finally {
       showDeleteDialog = false;
@@ -438,11 +418,16 @@
             </Button>
             <Button
               on:click={handleExport}
+              disabled={isExporting}
               size="sm"
               variant="outline"
               class="h-8 gap-1"
             >
-              <Download class="h-3.5 w-3.5" /> Export
+              {#if isExporting}
+                <Loader2 class="h-3.5 w-3.5 animate-spin" /> Exporting...
+              {:else}
+                <Download class="h-3.5 w-3.5" /> Export
+              {/if}
             </Button>
           </div>
         </Card.Header>
@@ -506,9 +491,7 @@
                       <p class="truncate">Location: {person.location || "-"}</p>
                       <p class="truncate">Age: {person.ageGroup || "-"}</p>
                     </Card.Content>
-                    <Card.Footer
-                      class="flex justify-between pt-4 items-center"
-                    >
+                    <Card.Footer class="flex justify-between pt-4 items-center">
                       <Button
                         size="sm"
                         variant={person.present ? "outline" : "default"}

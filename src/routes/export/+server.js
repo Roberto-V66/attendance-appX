@@ -1,7 +1,12 @@
 // src/routes/export/+server.js
+
+import { createClient } from '@supabase/supabase-js';
+import { env } from '$env/dynamic/private'; // 
+import { SUPABASE_SERVICE_ROLE_KEY } from '$env/static/private';
 import * as XLSX from 'xlsx';
-import { db } from '$lib/firebase/firebase.js';
-import { collection, getDocs, query, orderBy } from 'firebase/firestore';
+
+// The private env object contains PUBLIC variables as well when on the server.
+const supabaseAdmin = createClient(env.VITE_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 export async function POST({ cookies }) {
     const sessionToken = cookies.get('session_token');
@@ -10,59 +15,43 @@ export async function POST({ cookies }) {
     }
 
     try {
-        const attendeesCollectionRef = collection(db, 'attendees');
-        const q = query(attendeesCollectionRef, orderBy('name'));
-        const querySnapshot = await getDocs(q);
+        const { data, error } = await supabaseAdmin
+            .from('attendees')
+            .select('*')
+            .order('Name', { ascending: true });
 
-        const attendeesData = querySnapshot.docs.map(doc => {
-            const data = doc.data();
-            return {
-                'Name': data.name || '',
-                'Phone': data.phone || '',
-                'Location': data.location || '',
-                'Age Group': data.ageGroup || '',
-                'New?': data.isNew ? 'Yes' : 'No',
-                'Mentor?': data.hasMentor ? 'Yes' : 'No',
-                'Status': data.present ? 'Present' : 'Absent',
-                'Last Updated': data.lastUpdated ? 
-                    new Date(data.lastUpdated.seconds * 1000).toLocaleString() : 'N/A'
-            };
-        });
+        if (error) throw error;
 
-        if (attendeesData.length === 0) {
+        if (!data || data.length === 0) {
             return new Response("No data to export", { status: 404 });
         }
 
-        // Create worksheet with custom headers
-        const worksheet = XLSX.utils.json_to_sheet(attendeesData);
-        
-        // Set column widths
+        const attendeesForExport = data.map(attendee => ({
+            'Name': attendee.Name || '',
+            'Phone': attendee.Phone || '',
+            'Location': attendee.Location || '',
+            'Age Group': attendee.AgeGroup || '',
+            'Is New?': attendee.New ? 'Yes' : 'No',
+            'Has Mentor?': attendee.Mentor ? 'Yes' : 'No',
+            'Status': attendee.present ? 'Present' : 'Absent',
+        }));
+
+        const worksheet = XLSX.utils.json_to_sheet(attendeesForExport);
         worksheet['!cols'] = [
-            { wch: 25 }, // Name
-            { wch: 15 }, // Phone
-            { wch: 20 }, // Location
-            { wch: 12 }, // Age Group
-            { wch: 8 },  // New?
-            { wch: 10 }, // Mentor?
-            { wch: 12 }, // Status
-            { wch: 20 }  // Last Updated
+            { wch: 25 }, { wch: 15 }, { wch: 20 }, { wch: 12 },
+            { wch: 10 }, { wch: 12 }, { wch: 12 }
         ];
 
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendees');
 
-        // Generate buffer
-        const buf = XLSX.write(workbook, { 
-            type: 'buffer', 
-            bookType: 'xlsx',
-            cellStyles: true 
-        });
+        const buf = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
 
         return new Response(buf, {
             status: 200,
             headers: {
                 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'Content-Disposition': `attachment; filename="attendees_export_${new Date().toISOString().slice(0,10)}.xlsx"`
+                'Content-Disposition': `attachment; filename="attendees_export_${new Date().toISOString().slice(0, 10)}.xlsx"`
             }
         });
 
